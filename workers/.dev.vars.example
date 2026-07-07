@@ -1,0 +1,15 @@
+# このファイルをコピーして workers/.dev.vars を作り、実キーを入れる。
+#   cp .dev.vars.example .dev.vars
+# .dev.vars は .gitignore 済み。値はコミットしないこと。
+# 使うプロバイダのキーだけ設定すればよい (models.ts の keyEnv が参照する名前)。
+
+# openai-compat 系 (DeepSeek / Mistral / OpenAI などを baseURL で切替)
+DEEPSEEK_API_KEY=
+MISTRAL_API_KEY=
+OPENAI_API_KEY=
+
+# Gemini
+GEMINI_API_KEY=
+
+# Anthropic
+ANTHROPIC_API_KEY=

@@ -1,0 +1,7 @@
+# シークレット (絶対にコミットしない)
+.dev.vars
+
+# 依存・ビルド成果物
+node_modules/
+.wrangler/
+dist/
