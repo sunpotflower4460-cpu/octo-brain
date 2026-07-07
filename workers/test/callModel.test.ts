@@ -144,9 +144,11 @@ describe("gemini", () => {
     });
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toContain(
-      "/models/gemini-test:generateContent?key=gm-test-key",
-    );
+    // APIキーは URL クエリではなく x-goog-api-key ヘッダーで渡す
+    expect(url).toContain("/models/gemini-test:generateContent");
+    expect(url).not.toContain("key=");
+    const headers = init.headers as Record<string, string>;
+    expect(headers["x-goog-api-key"]).toBe("gm-test-key");
     const body = bodyOf(init);
     expect(body.systemInstruction).toEqual({
       parts: [{ text: "system-rule" }],
@@ -190,6 +192,34 @@ describe("anthropic", () => {
     expect(res.text).toBe("a-out");
     expect(res.inTok).toBe(7);
     expect(res.outTok).toBe(4);
+  });
+});
+
+describe("原価ログ collector", () => {
+  it("呼び出しごとに collector.record が使われモデル名/トークンが載る", async () => {
+    mockFetch(() =>
+      jsonResponse({
+        choices: [{ message: { content: "hi" } }],
+        usage: { prompt_tokens: 10, completion_tokens: 5 },
+      }),
+    );
+    const calls: unknown[] = [];
+    const collector = { record: (r: unknown) => calls.push(r) };
+
+    await callModel("node", messages, {
+      env,
+      modelOverride: { ...openaiCfg, pricePerMTokIn: 2, pricePerMTokOut: 4 },
+      collector,
+    });
+
+    expect(calls).toHaveLength(1);
+    const rec = calls[0] as Record<string, unknown>;
+    expect(rec.role).toBe("node");
+    expect(rec.model).toBe("test-chat");
+    expect(rec.inTok).toBe(10);
+    expect(rec.outTok).toBe(5);
+    // estCost = 10/1e6*2 + 5/1e6*4 = 0.00002 + 0.00002 = 0.00004
+    expect(rec.estCost).toBeCloseTo(0.00004, 10);
   });
 });
 

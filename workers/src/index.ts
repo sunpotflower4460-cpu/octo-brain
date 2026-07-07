@@ -3,9 +3,14 @@ import { cors } from "hono/cors";
 import { callModel } from "./lib/callModel.js";
 import type { ModelRole } from "./config/models.js";
 import { MODELS } from "./config/models.js";
-import type { ChatMessage, Env } from "./types.js";
+import { runAnalyze } from "./lib/analyze.js";
+import type { AnalyzeMode, ChatMessage, Env } from "./types.js";
 
-const VERSION = "0.0.0-p0";
+const VERSION = "0.0.0-p1";
+
+const MAX_INPUT_LEN = 4000;
+const MAX_SUMMARY_LEN = 500;
+const VALID_MODES: AnalyzeMode[] = ["auto", "simple", "normal", "complex"];
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -68,6 +73,56 @@ app.post("/api/dev/ping-model", async (c) => {
     return c.json(
       { ok: false, role, error: err instanceof Error ? err.message : String(err) },
       502,
+    );
+  }
+});
+
+// メイン分析エンドポイント (§9 P1契約: 一括JSON)
+app.post("/api/analyze", async (c) => {
+  let body: {
+    input?: unknown;
+    summary?: unknown;
+    mode?: unknown;
+    clientId?: unknown;
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "invalid_json" }, 400);
+  }
+
+  // 入力バリデーション (§P1)
+  const input = typeof body.input === "string" ? body.input : "";
+  if (input.length === 0) return c.json({ error: "input_required" }, 400);
+  if (input.length > MAX_INPUT_LEN) {
+    return c.json({ error: "input_too_long", max: MAX_INPUT_LEN }, 400);
+  }
+  const summary = typeof body.summary === "string" ? body.summary : "";
+  if (summary.length > MAX_SUMMARY_LEN) {
+    return c.json({ error: "summary_too_long", max: MAX_SUMMARY_LEN }, 400);
+  }
+  const clientId = typeof body.clientId === "string" ? body.clientId : "";
+  if (clientId.length === 0) return c.json({ error: "clientId_required" }, 400);
+
+  const mode = (typeof body.mode === "string" ? body.mode : "auto") as AnalyzeMode;
+  if (!VALID_MODES.includes(mode)) {
+    return c.json({ error: "invalid_mode", allowed: VALID_MODES }, 400);
+  }
+
+  try {
+    const res = await runAnalyze(
+      { input, summary, mode, clientId },
+      { env: c.env, now: new Date(), requestId: crypto.randomUUID() },
+    );
+    return c.json(res);
+  } catch (err) {
+    // パイプライン全体の失敗は握りつぶさず可視化する
+    return c.json(
+      {
+        error: "pipeline_error",
+        message: err instanceof Error ? err.message : String(err),
+      },
+      500,
     );
   }
 });

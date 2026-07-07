@@ -34,7 +34,7 @@ wrangler kv namespace create OCTO_KV --preview
 npm run dev
 # 別ターミナルで:
 curl http://localhost:8787/api/health
-# => {"ok":true,"version":"0.0.0-p0"}
+# => {"ok":true,"version":"0.0.0-p1"}
 ```
 
 ### 実モデル疎通 (ping-model)
@@ -51,6 +51,48 @@ curl -X POST http://localhost:8787/api/dev/ping-model \
 
 `role` は `router` | `node` | `synth` | `verifier`。
 このルートは `ENVIRONMENT === "production"` のとき 404 で無効になる。
+
+### 分析 (analyze) — P1
+
+`.dev.vars` にキーを入れ、`models.ts` の `model` / `baseURL` を実値に設定してから、
+curl一発で「ルーティング → 並列ノード → 統合 → 検証」を通った一括JSONが返る:
+
+```bash
+curl -X POST http://localhost:8787/api/analyze \
+  -H 'content-type: application/json' \
+  -d '{"input":"新機能を追加すべきか迷っている","clientId":"dev-uuid-1234"}'
+```
+
+リクエスト:
+
+```jsonc
+{
+  "input": "string (必須, 4000字以内)",
+  "summary": "string (任意, 500字以内。前回返ってきた meta.summary を渡す)",
+  "mode": "auto | simple | normal | complex (任意, 既定 auto)",
+  "clientId": "string (必須, フロント生成のUUID)"
+}
+```
+
+レスポンス (200):
+
+```jsonc
+{
+  "answer": "最終回答",
+  "summary": "更新版ローリング要約 (次回 summary に渡す)",
+  "nodes": [ { "id": "counter", "status": "ok", "points": ["..."], "confidence": 0.8 } ],
+  "meta": {
+    "route": "normal", "quorum": "4/4", "fallback": false,
+    "verified": "pass", "totalCost": 0.0012, "ms": 4200, "quotaUsed": 3
+  }
+}
+```
+
+- `mode` を明示するとRouterをスキップする(`complex` で常時8基起動)。
+- クォーラム未達時は `meta.fallback: true` になり、統合脳の単発回答を返す。
+- 原価ログ (`cost:{yyyymmdd}:{requestId}`) とクォータ (`quota:{clientId}:{yyyymm}`) が KV に書かれる。
+  ローカルでは Miniflare のローカルKVに保存される。
+- KV書き込み等の部分失敗は `meta.warnings` に載せて可視化する(握りつぶさない)。
 
 ### テスト
 
