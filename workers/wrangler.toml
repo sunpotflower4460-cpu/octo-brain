@@ -1,0 +1,22 @@
+name = "octo-brain"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+
+# 環境変数 (シークレットではない設定)
+[vars]
+ENVIRONMENT = "development"
+# 本番オリジン。CORS許可に使う。本番デプロイ時は wrangler secret ではなく
+# ここ or デプロイ環境の vars で上書きする
+ALLOWED_ORIGIN = ""
+
+# KVネームスペース。id はプレースホルダー。実際のIDは下記コマンドで作成して差し替える:
+#   wrangler kv namespace create OCTO_KV
+#   wrangler kv namespace create OCTO_KV --preview
+[[kv_namespaces]]
+binding = "OCTO_KV"
+id = "PLACEHOLDER_KV_ID"
+preview_id = "PLACEHOLDER_KV_PREVIEW_ID"
+
+# シークレット (APIキー) はリポジトリに書かない。以下で設定する:
+#   本番: wrangler secret put DEEPSEEK_API_KEY   (等、.dev.vars.example のキー名を参照)
+#   開発: workers/.dev.vars に記載 (.gitignore 済み)
