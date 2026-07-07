@@ -11,10 +11,16 @@
 
 import {
   MODELS,
+  estimateCost,
   type ModelConfig,
   type ModelRole,
 } from "../config/models.js";
-import type { ChatMessage, Env, ModelCallResult } from "../types.js";
+import type {
+  ChatMessage,
+  CostSink,
+  Env,
+  ModelCallResult,
+} from "../types.js";
 
 export interface CallModelOpts {
   env: Env;
@@ -23,6 +29,9 @@ export interface CallModelOpts {
   modelOverride?: ModelConfig;
   // リトライのベース待機ms (指数バックオフ)。テストで 0 を渡せるよう外出し
   retryBaseMs?: number;
+  // 原価ログの書き込み先。渡されると呼び出し1件分のレコードを record() する。
+  // 全モデル呼び出しがこの1関数を経由して原価ログに載る (絶対ルール5)。
+  collector?: CostSink;
 }
 
 const MAX_RETRIES = 2;
@@ -57,6 +66,18 @@ export async function callModel(
 
   const parsed = safeJson(bodyText);
   const out = extractResult(cfg, parsed, messages);
+
+  // 原価ログ: このレイヤーを通る全呼び出しを1件記録する
+  opts.collector?.record({
+    role,
+    model: cfg.model,
+    inTok: out.inTok,
+    outTok: out.outTok,
+    estCost: estimateCost(cfg, out.inTok, out.outTok),
+    ms,
+    estimated: out.estimated,
+  });
+
   return { ...out, ms };
 }
 
@@ -134,7 +155,9 @@ function buildGemini(
   const base = cfg.baseURL
     ? trimSlash(cfg.baseURL)
     : "https://generativelanguage.googleapis.com/v1beta";
-  const url = `${base}/models/${cfg.model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  // APIキーは URL クエリ (?key=) ではなく x-goog-api-key ヘッダーで渡す。
+  // クエリだとアクセスログやプロキシに残りやすいため。
+  const url = `${base}/models/${cfg.model}:generateContent`;
 
   const systemText = messages
     .filter((m) => m.role === "system")
@@ -159,7 +182,10 @@ function buildGemini(
     url,
     init: {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        "x-goog-api-key": apiKey,
+      },
       body: JSON.stringify(body),
     },
   };
