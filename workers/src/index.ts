@@ -4,9 +4,10 @@ import { callModel } from "./lib/callModel.js";
 import type { ModelRole } from "./config/models.js";
 import { MODELS } from "./config/models.js";
 import { runAnalyze } from "./lib/analyze.js";
+import { runAnalyzeStream } from "./lib/analyzeStream.js";
 import type { AnalyzeMode, ChatMessage, Env } from "./types.js";
 
-const VERSION = "0.0.0-p1";
+const VERSION = "0.0.0-p2";
 
 const MAX_INPUT_LEN = 4000;
 const MAX_SUMMARY_LEN = 500;
@@ -77,43 +78,49 @@ app.post("/api/dev/ping-model", async (c) => {
   }
 });
 
-// メイン分析エンドポイント (§9 P1契約: 一括JSON)
+// 入力バリデーション (§P1)。両エンドポイント共通。
+type ValidatedBody =
+  | { ok: true; value: { input: string; summary: string; mode: AnalyzeMode; clientId: string } }
+  | { ok: false; error: string; extra?: Record<string, unknown> };
+
+function validateAnalyzeBody(body: unknown): ValidatedBody {
+  const b = (body ?? {}) as Record<string, unknown>;
+  const input = typeof b.input === "string" ? b.input : "";
+  if (input.length === 0) return { ok: false, error: "input_required" };
+  if (input.length > MAX_INPUT_LEN) {
+    return { ok: false, error: "input_too_long", extra: { max: MAX_INPUT_LEN } };
+  }
+  const summary = typeof b.summary === "string" ? b.summary : "";
+  if (summary.length > MAX_SUMMARY_LEN) {
+    return { ok: false, error: "summary_too_long", extra: { max: MAX_SUMMARY_LEN } };
+  }
+  const clientId = typeof b.clientId === "string" ? b.clientId : "";
+  if (clientId.length === 0) return { ok: false, error: "clientId_required" };
+
+  const mode = (typeof b.mode === "string" ? b.mode : "auto") as AnalyzeMode;
+  if (!VALID_MODES.includes(mode)) {
+    return { ok: false, error: "invalid_mode", extra: { allowed: VALID_MODES } };
+  }
+  return { ok: true, value: { input, summary, mode, clientId } };
+}
+
+// メイン分析エンドポイント (§9 P1契約: 一括JSON)。ベンチ(P3)でも使う。
 app.post("/api/analyze", async (c) => {
-  let body: {
-    input?: unknown;
-    summary?: unknown;
-    mode?: unknown;
-    clientId?: unknown;
-  };
+  let body: unknown;
   try {
     body = await c.req.json();
   } catch {
     return c.json({ error: "invalid_json" }, 400);
   }
-
-  // 入力バリデーション (§P1)
-  const input = typeof body.input === "string" ? body.input : "";
-  if (input.length === 0) return c.json({ error: "input_required" }, 400);
-  if (input.length > MAX_INPUT_LEN) {
-    return c.json({ error: "input_too_long", max: MAX_INPUT_LEN }, 400);
-  }
-  const summary = typeof body.summary === "string" ? body.summary : "";
-  if (summary.length > MAX_SUMMARY_LEN) {
-    return c.json({ error: "summary_too_long", max: MAX_SUMMARY_LEN }, 400);
-  }
-  const clientId = typeof body.clientId === "string" ? body.clientId : "";
-  if (clientId.length === 0) return c.json({ error: "clientId_required" }, 400);
-
-  const mode = (typeof body.mode === "string" ? body.mode : "auto") as AnalyzeMode;
-  if (!VALID_MODES.includes(mode)) {
-    return c.json({ error: "invalid_mode", allowed: VALID_MODES }, 400);
-  }
+  const v = validateAnalyzeBody(body);
+  if (!v.ok) return c.json({ error: v.error, ...v.extra }, 400);
 
   try {
-    const res = await runAnalyze(
-      { input, summary, mode, clientId },
-      { env: c.env, now: new Date(), requestId: crypto.randomUUID() },
-    );
+    const res = await runAnalyze(v.value, {
+      env: c.env,
+      now: new Date(),
+      requestId: crypto.randomUUID(),
+    });
     return c.json(res);
   } catch (err) {
     // パイプライン全体の失敗は握りつぶさず可視化する
@@ -125,6 +132,55 @@ app.post("/api/analyze", async (c) => {
       500,
     );
   }
+});
+
+// ストリーミング分析エンドポイント (§9 P2: SSE)。
+app.post("/api/analyze/stream", async (c) => {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "invalid_json" }, 400);
+  }
+  const v = validateAnalyzeBody(body);
+  if (!v.ok) return c.json({ error: v.error, ...v.extra }, 400);
+
+  const encoder = new TextEncoder();
+  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+  const writer = writable.getWriter();
+
+  const emit = (event: string, data: unknown): void => {
+    void writer.write(
+      encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`),
+    );
+  };
+
+  const pump = async (): Promise<void> => {
+    try {
+      await runAnalyzeStream(
+        v.value,
+        { env: c.env, now: new Date(), requestId: crypto.randomUUID() },
+        emit,
+      );
+    } catch (err) {
+      emit("error", {
+        message: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      await writer.close();
+    }
+  };
+
+  // Worker がストリーム完了まで生存するように waitUntil で継続
+  c.executionCtx.waitUntil(pump());
+
+  return new Response(readable, {
+    headers: {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache",
+      connection: "keep-alive",
+    },
+  });
 });
 
 export default app;
