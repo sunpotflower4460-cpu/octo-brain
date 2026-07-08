@@ -2,15 +2,26 @@ import { memo, useEffect, useRef } from "react";
 import type { AppState } from "../types";
 
 // --- 立体的なサイバーオクトパスアニメーション ---
-// docs/reference/prototype.jsx からの移植。描画ロジックの挙動は変更しない (絶対ルール4)。
-// props インターフェース (appState) を維持。TypeScript化に伴う型付けのみ。
-const OctopusCanvas = memo(({ appState }: { appState: AppState }) => {
+// docs/reference/prototype.jsx からの移植。既存の appState 描画ロジックは変更しない (絶対ルール4)。
+// P2拡張: 深化中に「対角の2本の腕だけが光る」演出のため、追加の任意 prop deepenArms を導入。
+// deepenArms が null のとき挙動は移植元と完全に同一(既存コードパスをそのまま通す)。
+interface OctopusCanvasProps {
+  appState: AppState;
+  deepenArms?: number[] | null;
+}
+
+const OctopusCanvas = memo(({ appState, deepenArms = null }: OctopusCanvasProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const appStateRef = useRef<AppState>(appState);
+  const deepenArmsRef = useRef<number[] | null>(deepenArms);
 
   useEffect(() => {
     appStateRef.current = appState;
   }, [appState]);
+
+  useEffect(() => {
+    deepenArmsRef.current = deepenArms;
+  }, [deepenArms]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -28,6 +39,8 @@ const OctopusCanvas = memo(({ appState }: { appState: AppState }) => {
 
     const draw = () => {
       const state = appStateRef.current;
+      // 深化中に光らせる対角2腕(null のときは通常描画)
+      const deepen = deepenArmsRef.current;
       const width = canvas.width;
       const height = canvas.height;
       const time = Date.now() / 1000;
@@ -137,7 +150,23 @@ const OctopusCanvas = memo(({ appState }: { appState: AppState }) => {
 
           let strokeColor = `rgba(${30 * depthFactor}, ${50 * depthFactor}, ${80 * depthFactor}, 0.9)`;
 
-          if (state === "processing_subs") {
+          if (deepen) {
+            // 深化中: 対角2腕だけが強く脈打ち、他は暗転する
+            if (deepen.includes(tData.id)) {
+              const pulse = Math.sin(p1.progress * 22 + time * 16);
+              if (pulse > 0.4) {
+                strokeColor = `rgba(232, 121, 249, ${Math.min(1, pulse + 0.3) * depthFactor})`;
+                ctx.shadowBlur = 22 * depthFactor;
+                ctx.shadowColor = "#e879f9";
+              } else {
+                strokeColor = `rgba(120, 40, 160, ${0.6 * depthFactor})`;
+                ctx.shadowBlur = 0;
+              }
+            } else {
+              strokeColor = `rgba(${18 * depthFactor}, ${22 * depthFactor}, ${38 * depthFactor}, 0.5)`;
+              ctx.shadowBlur = 0;
+            }
+          } else if (state === "processing_subs") {
             const pulse = Math.sin(p1.progress * 25 - time * 12);
             if (pulse > 0.7) {
               strokeColor = `rgba(0, 243, 255, ${pulse * depthFactor})`;
@@ -194,7 +223,18 @@ const OctopusCanvas = memo(({ appState }: { appState: AppState }) => {
         const subRadius = 15 * endP.scale;
         ctx.arc(endP.x, endP.y, subRadius, 0, Math.PI * 2);
 
-        if (state === "processing_subs") {
+        const deepHi = deepen ? deepen.includes(tData.id) : false;
+        if (deepen) {
+          // 深化中: 光る2腕の吸盤先端だけ点灯、他は消灯
+          if (deepHi) {
+            ctx.fillStyle = "#e879f9";
+            ctx.shadowBlur = 28 * endP.scale;
+            ctx.shadowColor = "#e879f9";
+          } else {
+            ctx.fillStyle = "#0f172a";
+            ctx.shadowBlur = 0;
+          }
+        } else if (state === "processing_subs") {
           ctx.fillStyle = "#00f3ff";
           ctx.shadowBlur = 25 * endP.scale;
           ctx.shadowColor = "#00f3ff";
@@ -203,7 +243,13 @@ const OctopusCanvas = memo(({ appState }: { appState: AppState }) => {
           ctx.shadowBlur = 0;
         }
         ctx.fill();
-        ctx.strokeStyle = state === "processing_subs" ? "#ffffff" : "#38bdf8";
+        ctx.strokeStyle = deepen
+          ? deepHi
+            ? "#fdf4ff"
+            : "#334155"
+          : state === "processing_subs"
+            ? "#ffffff"
+            : "#38bdf8";
         ctx.lineWidth = 2 * endP.scale;
         ctx.stroke();
         ctx.shadowBlur = 0;

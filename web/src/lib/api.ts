@@ -3,6 +3,8 @@
 import { SSEParser } from "./sse";
 import type {
   AnalyzeRequestBody,
+  DeepenRequestBody,
+  DeepenResponse,
   DonePayload,
   NodeView,
   SSEPhase,
@@ -58,6 +60,24 @@ export async function analyzeStream(
   } catch (err) {
     handlers.onError?.(err instanceof Error ? err.message : String(err));
   }
+}
+
+// 深化 (P1.5 §6): 最緊張軸の対角2腕を再考させ中央脳が織り直した回答を得る。
+export async function deepen(
+  body: DeepenRequestBody,
+  signal?: AbortSignal,
+): Promise<DeepenResponse> {
+  const res = await fetch(`${API_BASE}/api/deepen`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`HTTP ${res.status}: ${text.slice(0, 300)}`);
+  }
+  return (await res.json()) as DeepenResponse;
 }
 
 function dispatch(
