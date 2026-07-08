@@ -29,6 +29,8 @@ export interface RunNodesOpts {
   signal?: AbortSignal;
   // テスト用。既定は8秒。
   nodeTimeoutMs?: number;
+  // 各ノードが完了した順に呼ばれる (SSEの node イベント逐次送出用)。
+  onNodeComplete?: (node: NodeResult) => void;
 }
 
 export interface RunNodesResult {
@@ -93,11 +95,15 @@ async function runOne(
         modelOverride: pickNodeModel(index),
       },
     );
-    return parseNodeResponse(id, res.text);
+    const parsed = parseNodeResponse(id, res.text);
+    opts.onNodeComplete?.(parsed);
+    return parsed;
   } catch {
     // タイムアウト由来の中断は timeout、それ以外は error
     const status = ctrl.signal.aborted ? "timeout" : "error";
-    return { id, status, points: [], confidence: 0, flag: null };
+    const failed: NodeResult = { id, status, points: [], confidence: 0, flag: null };
+    opts.onNodeComplete?.(failed);
+    return failed;
   } finally {
     clearTimeout(timer);
     opts.signal?.removeEventListener("abort", onExternalAbort);

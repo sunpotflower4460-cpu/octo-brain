@@ -3,6 +3,7 @@
 // 1回の呼び出しで得る (回答本文の後に "---SUMMARY---" 区切り + 300字以内の要約)。
 
 import { callModel } from "./callModel.js";
+import { callModelStream } from "./callModelStream.js";
 import type { CostSink, Env, NodeResult } from "../types.js";
 
 const SUMMARY_MARKER = "---SUMMARY---";
@@ -134,4 +135,101 @@ export function splitAnswerAndSummary(
   const summary =
     rawSummary.length > 0 ? rawSummary.slice(0, SUMMARY_MAX_LEN) : oldSummary;
   return { answer, summary };
+}
+
+// ---------------------------------------------------------------------------
+// ストリーミング統合 (P2 §1)。
+// token は回答本文のみをクライアントへ流し、"---SUMMARY---" 以降は流さず
+// サーバー側で切って done に含める。
+// ---------------------------------------------------------------------------
+
+// ストリームのデルタを受け、回答本文だけを段階的に emit する。
+// マーカーが分割チャンクをまたいでも漏れないよう末尾を保持する。
+export class SummaryStreamCutter {
+  static readonly MARKER = SUMMARY_MARKER;
+  private full = "";
+  private emitted = 0;
+  private markerHit = false;
+
+  // このデルタで新たに emit すべき回答テキストを返す (無ければ空文字)。
+  push(delta: string): string {
+    this.full += delta;
+    if (this.markerHit) return "";
+
+    const idx = this.full.indexOf(SUMMARY_MARKER);
+    if (idx !== -1) {
+      this.markerHit = true;
+      const out = this.full.slice(this.emitted, idx);
+      this.emitted = idx;
+      return out;
+    }
+    // マーカーが途中まで来ている可能性があるので末尾 (MARKER長-1) は保持
+    const hold = SUMMARY_MARKER.length - 1;
+    const safeEnd = this.full.length - hold;
+    if (safeEnd <= this.emitted) return "";
+    const out = this.full.slice(this.emitted, safeEnd);
+    this.emitted = safeEnd;
+    return out;
+  }
+
+  // ストリーム終了時、未 emit の回答テキストを吐き出す。
+  flushRemaining(): string {
+    const idx = this.full.indexOf(SUMMARY_MARKER);
+    const answerEnd = idx === -1 ? this.full.length : idx;
+    if (answerEnd <= this.emitted) return "";
+    const out = this.full.slice(this.emitted, answerEnd);
+    this.emitted = answerEnd;
+    return out;
+  }
+
+  // 最終的な回答/要約 (done 用)。
+  result(oldSummary: string): SynthResult {
+    return splitAnswerAndSummary(this.full, oldSummary);
+  }
+}
+
+export async function synthesizeStream(
+  input: string,
+  summary: string,
+  nodes: NodeResult[],
+  opts: SynthOpts,
+  onToken: (t: string) => void,
+): Promise<SynthResult> {
+  const reports = buildReports(nodes);
+  const userText = buildSynthUserText(input, summary, reports);
+  return streamAndCut(SYNTH_SYSTEM, userText, summary, opts, onToken);
+}
+
+export async function synthesizeFallbackStream(
+  input: string,
+  summary: string,
+  opts: SynthOpts,
+  onToken: (t: string) => void,
+): Promise<SynthResult> {
+  const userText = buildFallbackUserText(input, summary);
+  return streamAndCut(FALLBACK_SYSTEM, userText, summary, opts, onToken);
+}
+
+async function streamAndCut(
+  system: string,
+  userText: string,
+  oldSummary: string,
+  opts: SynthOpts,
+  onToken: (t: string) => void,
+): Promise<SynthResult> {
+  const cutter = new SummaryStreamCutter();
+  for await (const delta of callModelStream(
+    "synth",
+    [
+      { role: "system", content: system },
+      { role: "user", content: userText },
+    ],
+    { env: opts.env, collector: opts.collector, signal: opts.signal },
+  )) {
+    const out = cutter.push(delta);
+    if (out.length > 0) onToken(out);
+  }
+  const tail = cutter.flushRemaining();
+  if (tail.length > 0) onToken(tail);
+  return cutter.result(oldSummary);
 }
