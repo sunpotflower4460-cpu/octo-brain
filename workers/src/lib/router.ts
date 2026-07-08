@@ -1,13 +1,15 @@
-// ルーター (docs/00_architecture.md §3)。
-// 超軽量モデルで simple / normal / complex を1語分類。
-// 失敗・不正応答時は normal にフォールバックする。
+// ルーター (docs/01_depth_design.md §4.3, §6)。
+// 相談のドメイン(領域)を1語分類する。light プランのとき起動する2軸の選択に使う。
+// 失敗・不正応答時は general にフォールバックする。判定プロンプトは固定文。
 
 import { callModel } from "./callModel.js";
-import type { CostSink, Env, Route } from "../types.js";
+import type { CostSink, Domain, Env } from "../types.js";
 
-// 分類器プロンプト (§3)。全リクエスト固定。
-const ROUTER_SYSTEM =
-  "次の入力への回答に必要な思考の重さを simple / normal / complex のいずれか1語のみで答えよ。";
+// ドメイン分類プロンプト(§4.3)。全リクエスト固定。
+const DOMAIN_SYSTEM =
+  "次の相談がどの領域かを、love / work / money / family / self / general のいずれか1語のみで答えよ。love=恋愛・人間関係、work=仕事・キャリア、money=お金・投資、family=家族・育児、self=自分自身の内省、general=それ以外。";
+
+const DOMAINS: Domain[] = ["love", "work", "money", "family", "self", "general"];
 
 export interface RouterOpts {
   env: Env;
@@ -15,31 +17,30 @@ export interface RouterOpts {
   signal?: AbortSignal;
 }
 
-export async function classifyRoute(
+export async function classifyDomain(
   input: string,
   opts: RouterOpts,
-): Promise<Route> {
+): Promise<Domain> {
   try {
     const res = await callModel(
       "router",
       [
-        { role: "system", content: ROUTER_SYSTEM },
+        { role: "system", content: DOMAIN_SYSTEM },
         { role: "user", content: input },
       ],
       { env: opts.env, collector: opts.collector, signal: opts.signal },
     );
-    return parseRoute(res.text);
+    return parseDomain(res.text);
   } catch {
-    // タイムアウト・ネットワーク等はすべて normal フォールバック
-    return "normal";
+    return "general";
   }
 }
 
-// 応答文字列から分類を抽出。判別不能なら normal。
-export function parseRoute(text: string): Route {
+// 応答文字列からドメインを抽出。判別不能なら general。
+export function parseDomain(text: string): Domain {
   const t = text.toLowerCase();
-  if (t.includes("complex")) return "complex";
-  if (t.includes("simple")) return "simple";
-  if (t.includes("normal")) return "normal";
-  return "normal";
+  for (const d of DOMAINS) {
+    if (d !== "general" && t.includes(d)) return d;
+  }
+  return "general";
 }

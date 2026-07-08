@@ -122,7 +122,7 @@ export async function runOctoBrain(question: Question): Promise<SideAResult> {
     body: JSON.stringify({
       input: question.q,
       clientId: "bench",
-      mode: "complex", // ベンチは最大構成で測る
+      plan: "deep", // ベンチは有料相当(4軸8腕・掘る統合)で測る (P1.5)
     }),
   });
   if (!res.ok) {

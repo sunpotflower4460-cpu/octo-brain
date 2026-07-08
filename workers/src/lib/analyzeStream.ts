@@ -1,10 +1,9 @@
-// ストリーミング分析パイプライン (P2 §1, docs/00_architecture.md §9 SSE契約)。
-// P1の analyze.ts と同じ段取りだが、各段階で SSE イベントを emit する:
+// ストリーミング分析パイプライン (docs/00_architecture.md §9 SSE + P1.5 拡張)。
+// analyze.ts と同じ段取りで各段階に SSE イベントを emit する:
 //   phase (routing/nodes/synth/verify) / node / token / done / error
-// ノードは完了順に node イベントを送り、Synthesizer は token を逐次送出、
-// Verifier はストリーム完了後に実行して done に反映する。
+// done の meta に plan/domain/tension を含める。
 
-import { classifyRoute } from "./router.js";
+import { classifyDomain } from "./router.js";
 import { runNodes } from "./runNodes.js";
 import {
   synthesizeStream,
@@ -12,8 +11,9 @@ import {
 } from "./synthesize.js";
 import { verify } from "./verify.js";
 import { CostCollector, incrementQuota, logCost } from "./costlog.js";
+import { planLenses, planQuorum } from "../config/nodes.js";
 import type { AnalyzeInput, AnalyzeDeps, AnalyzeMeta } from "./analyze.js";
-import type { Route } from "../types.js";
+import type { Domain } from "../types.js";
 
 export type SSEPhase = "routing" | "nodes" | "synth" | "verify";
 
@@ -31,27 +31,24 @@ export async function runAnalyzeStream(
 
   // ① Router
   emit("phase", { phase: "routing" satisfies SSEPhase });
-  const route: Route =
-    req.mode === "auto"
-      ? await classifyRoute(req.input, { env: deps.env, collector })
-      : req.mode;
+  const domain: Domain = await classifyDomain(req.input, {
+    env: deps.env,
+    collector,
+  });
 
-  // ② 並列ノード (完了順に node イベント)
+  // ② プラン別レンズ並列(完了順に node イベント)
   emit("phase", { phase: "nodes" satisfies SSEPhase });
-  const run = await runNodes(route, req.input, req.summary, {
+  const lensIds = planLenses(req.plan, domain);
+  const required = planQuorum(req.plan);
+  const run = await runNodes(lensIds, required, req.input, req.summary, {
     env: deps.env,
     collector,
     nodeTimeoutMs: deps.nodeTimeoutMs,
     onNodeComplete: (n) =>
-      emit("node", {
-        id: n.id,
-        status: n.status,
-        points: n.points,
-        confidence: n.confidence,
-      }),
+      emit("node", { id: n.id, status: n.status, opinions: n.opinions }),
   });
 
-  // ③ 統合 (token 逐次) or フォールバック
+  // ③ 掘る統合(token 逐次) or フォールバック
   emit("phase", { phase: "synth" satisfies SSEPhase });
   const onToken = (t: string) => emit("token", { t });
   const synth = run.fallback
@@ -69,13 +66,13 @@ export async function runAnalyzeStream(
         onToken,
       );
 
-  // ④ 検証 (ストリーム完了後。修正時のみ done の answer を差し替え)
+  // ④ 検証
   emit("phase", { phase: "verify" satisfies SSEPhase });
   const verified = await verify(synth.answer, { env: deps.env, collector });
 
   const quorumStr = `${run.successCount}/${run.nodes.length}`;
 
-  // ⑤ 原価ログ + クォータ (KV)。失敗は握りつぶさず warnings に。
+  // ⑤ 原価ログ + クォータ
   let quotaUsed: number | null = null;
   try {
     await logCost(
@@ -95,9 +92,11 @@ export async function runAnalyzeStream(
   }
 
   const meta: AnalyzeMeta = {
-    route,
+    plan: req.plan,
+    domain,
     quorum: quorumStr,
     fallback: run.fallback,
+    tension: synth.tension,
     verified: verified.modified ? "modified" : "pass",
     totalCost: collector.totalCost(),
     ms: Date.now() - started,
@@ -105,15 +104,14 @@ export async function runAnalyzeStream(
   };
   if (warnings.length > 0) meta.warnings = warnings;
 
-  // ⑥ done (一括JSONと同形)
+  // ⑥ done(一括JSONと同形)
   emit("done", {
     answer: verified.text,
     summary: synth.summary,
     nodes: run.nodes.map((n) => ({
       id: n.id,
       status: n.status,
-      points: n.points,
-      confidence: n.confidence,
+      opinions: n.opinions,
     })),
     meta,
   });

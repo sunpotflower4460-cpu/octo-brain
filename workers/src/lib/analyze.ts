@@ -1,18 +1,26 @@
-// 分析パイプライン全体 (docs/00_architecture.md §1, §9)。
-// Router → 並列ノード → 統合 or フォールバック → 検証 → 原価ログ/クォータ。
+// 分析パイプライン全体 (docs/01_depth_design.md §6, docs/00_architecture.md §1)。
+// Router(ドメイン) → プラン別レンズ並列 → 掘る統合 or フォールバック → 検証 → 原価ログ。
 // HTTP関心 (バリデーション/JSON) は index.ts 側。ここは検証済み入力を受けて実行する。
 
-import { classifyRoute } from "./router.js";
+import { classifyDomain } from "./router.js";
 import { runNodes } from "./runNodes.js";
 import { synthesize, synthesizeFallback } from "./synthesize.js";
 import { verify } from "./verify.js";
 import { CostCollector, incrementQuota, logCost } from "./costlog.js";
-import type { AnalyzeMode, Env, NodeResult, Route } from "../types.js";
+import { planLenses, planQuorum } from "../config/nodes.js";
+import type {
+  Domain,
+  Env,
+  NodeResult,
+  Opinion,
+  Plan,
+  Tension,
+} from "../types.js";
 
 export interface AnalyzeInput {
   input: string;
   summary: string;
-  mode: AnalyzeMode;
+  plan: Plan;
   clientId: string;
 }
 
@@ -26,19 +34,19 @@ export interface AnalyzeDeps {
 export interface AnalyzeNodeView {
   id: string;
   status: NodeResult["status"];
-  points: string[];
-  confidence: number;
+  opinions: Opinion[];
 }
 
 export interface AnalyzeMeta {
-  route: Route;
+  plan: Plan;
+  domain: Domain;
   quorum: string;
   fallback: boolean;
+  tension: Tension | null;
   verified: "pass" | "modified";
   totalCost: number;
   ms: number;
   quotaUsed: number | null;
-  // 部分失敗を握りつぶさず可視化する (§技術規約)。KV書き込み失敗など。
   warnings?: string[];
 }
 
@@ -57,20 +65,22 @@ export async function runAnalyze(
   const collector = new CostCollector();
   const warnings: string[] = [];
 
-  // ① Router (mode 明示時はスキップ)
-  const route: Route =
-    req.mode === "auto"
-      ? await classifyRoute(req.input, { env: deps.env, collector })
-      : req.mode;
+  // ① Router: ドメイン分類(light の軸選択 + meta 表示)
+  const domain = await classifyDomain(req.input, {
+    env: deps.env,
+    collector,
+  });
 
-  // ② 並列ノード + クォーラム
-  const run = await runNodes(route, req.input, req.summary, {
+  // ② プラン別レンズ並列 + クォーラム
+  const lensIds = planLenses(req.plan, domain);
+  const required = planQuorum(req.plan);
+  const run = await runNodes(lensIds, required, req.input, req.summary, {
     env: deps.env,
     collector,
     nodeTimeoutMs: deps.nodeTimeoutMs,
   });
 
-  // ③ 統合 or フォールバック
+  // ③ 掘る統合 or フォールバック
   const synth = run.fallback
     ? await synthesizeFallback(req.input, req.summary, {
         env: deps.env,
@@ -81,12 +91,12 @@ export async function runAnalyze(
         collector,
       });
 
-  // ④ 検証 (表面のみ最小修正)
+  // ④ 検証(表面のみ最小修正)
   const verified = await verify(synth.answer, { env: deps.env, collector });
 
   const quorumStr = `${run.successCount}/${run.nodes.length}`;
 
-  // ⑤ 原価ログ + クォータ (KV)。失敗は握りつぶさず warnings に載せる。
+  // ⑤ 原価ログ + クォータ(KV)。失敗は握りつぶさず warnings に。
   let quotaUsed: number | null = null;
   try {
     await logCost(
@@ -100,22 +110,20 @@ export async function runAnalyze(
     warnings.push(`cost_log_failed: ${errMsg(err)}`);
   }
   try {
-    quotaUsed = await incrementQuota(
-      deps.env.OCTO_KV,
-      req.clientId,
-      deps.now,
-    );
+    quotaUsed = await incrementQuota(deps.env.OCTO_KV, req.clientId, deps.now);
   } catch (err) {
     warnings.push(`quota_increment_failed: ${errMsg(err)}`);
   }
 
   const meta: AnalyzeMeta = {
-    route,
+    plan: req.plan,
+    domain,
     quorum: quorumStr,
     fallback: run.fallback,
+    tension: synth.tension,
     verified: verified.modified ? "modified" : "pass",
     totalCost: collector.totalCost(),
-    ms: elapsed(started),
+    ms: Date.now() - started,
     quotaUsed,
   };
   if (warnings.length > 0) meta.warnings = warnings;
@@ -126,15 +134,10 @@ export async function runAnalyze(
     nodes: run.nodes.map((n) => ({
       id: n.id,
       status: n.status,
-      points: n.points,
-      confidence: n.confidence,
+      opinions: n.opinions,
     })),
     meta,
   };
-}
-
-function elapsed(startedMs: number): number {
-  return Date.now() - startedMs;
 }
 
 function errMsg(err: unknown): string {
