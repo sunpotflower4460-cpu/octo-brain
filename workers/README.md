@@ -34,7 +34,7 @@ wrangler kv namespace create OCTO_KV --preview
 npm run dev
 # 別ターミナルで:
 curl http://localhost:8787/api/health
-# => {"ok":true,"version":"0.0.0-p1"}
+# => {"ok":true,"version":"0.0.0-p1.5"}
 ```
 
 ### 実モデル疎通 (ping-model)
@@ -52,15 +52,16 @@ curl -X POST http://localhost:8787/api/dev/ping-model \
 `role` は `router` | `node` | `synth` | `verifier`。
 このルートは `ENVIRONMENT === "production"` のとき 404 で無効になる。
 
-### 分析 (analyze) — P1
+### 分析 (analyze) — P1 / P1.5(八芒星・深化)
 
 `.dev.vars` にキーを入れ、`models.ts` の `model` / `baseURL` を実値に設定してから、
-curl一発で「ルーティング → 並列ノード → 統合 → 検証」を通った一括JSONが返る:
+curl一発で「Router(ドメイン) → 並列レンズ → 掘る統合 → 検証」を通った一括JSONが返る:
 
 ```bash
+# deep(有料相当・4軸8腕・掘る統合)
 curl -X POST http://localhost:8787/api/analyze \
   -H 'content-type: application/json' \
-  -d '{"input":"新機能を追加すべきか迷っている","clientId":"dev-uuid-1234"}'
+  -d '{"input":"転職すべきか迷っている","clientId":"dev-uuid-1234","plan":"deep"}'
 ```
 
 リクエスト:
@@ -69,7 +70,7 @@ curl -X POST http://localhost:8787/api/analyze \
 {
   "input": "string (必須, 4000字以内)",
   "summary": "string (任意, 500字以内。前回返ってきた meta.summary を渡す)",
-  "mode": "auto | simple | normal | complex (任意, 既定 auto)",
+  "plan": "light | deep (任意, 既定 light)",   // light=2軸4腕 / deep=4軸8腕 (P1.5 §6)
   "clientId": "string (必須, フロント生成のUUID)"
 }
 ```
@@ -78,21 +79,42 @@ curl -X POST http://localhost:8787/api/analyze \
 
 ```jsonc
 {
-  "answer": "最終回答",
+  "answer": "引用から始まり、緊張を言語化し、最後に問いを置く『掘った』回答",
   "summary": "更新版ローリング要約 (次回 summary に渡す)",
-  "nodes": [ { "id": "counter", "status": "ok", "points": ["..."], "confidence": 0.8 } ],
+  "nodes": [ { "id": "truth", "status": "ok",
+              "opinions": [ { "claim": "...", "weight": 0.8, "why": "..." } ] } ],
   "meta": {
-    "route": "normal", "quorum": "4/4", "fallback": false,
-    "verified": "pass", "totalCost": 0.0012, "ms": 4200, "quotaUsed": 3
+    "plan": "deep", "domain": "work", "quorum": "8/8", "fallback": false,
+    "tension": { "axis": "心の軸", "reason": "..." } ,   // 最緊張軸。欠落時は null
+    "verified": "pass", "totalCost": 0.0031, "ms": 4200, "quotaUsed": 3
   }
 }
 ```
 
-- `mode` を明示するとRouterをスキップする(`complex` で常時8基起動)。
-- クォーラム未達時は `meta.fallback: true` になり、統合脳の単発回答を返す。
+- `plan` で起動レンズが決まる。`light` は Router が判定したドメイン(love/work/money/family/self/general)
+  に応じて2軸4腕、`deep` は全8腕(§4.3 の軸マッピング)。省略時は `light`(安全側)。
+- ノード出力は **opinions 形式**(`points` から移行, §4.1)。各 claim/why は60字以内、weight は0〜1。
+- `meta.tension` に統合脳が検出した最緊張軸が入る(`---TENSION---` から抽出)。欠落時は `null`(深化ボタン非表示)。
+- クォーラム未達時は `meta.fallback: true`(統合脳の単発回答。TENSIONは出ない)。
 - 原価ログ (`cost:{yyyymmdd}:{requestId}`) とクォータ (`quota:{clientId}:{yyyymm}`) が KV に書かれる。
-  ローカルでは Miniflare のローカルKVに保存される。
 - KV書き込み等の部分失敗は `meta.warnings` に載せて可視化する(握りつぶさない)。
+
+### 深化 (deepen) — P1.5(腕間結合)
+
+`POST /api/deepen`。最緊張軸の対角2腕に互いの意見を渡して再考させ、中央脳が織り直す。
+
+```bash
+curl -X POST http://localhost:8787/api/deepen \
+  -H 'content-type: application/json' \
+  -d '{"input":"転職すべきか","summary":"","priorAnswer":"<前回のanswer>",
+       "tension":{"axis":"心の軸"},"clientId":"dev-uuid-1234"}'
+# => { "answer": "一段深く織り直した回答",
+#      "meta": { "axis":"心の軸", "calls":5, "totalCost":0.0021, "ms":3200 } }
+```
+
+- `tension.axis` は analyze の `meta.tension.axis` をそのまま渡す。既知の軸(時/心/動/魂)に
+  解決できないと **400 `unknown_or_missing_tension`**(深化ボタンのガード)。
+- 対角2腕の再考(2コール・Flash)+ 中央脳の織り直し(1コール)。原価は KV に記録。
 
 ### 分析 (ストリーミング) — P2
 
@@ -101,9 +123,9 @@ curl -X POST http://localhost:8787/api/analyze \
 
 ```
 event: phase   data: {"phase":"routing"|"nodes"|"synth"|"verify"}
-event: node    data: {"id":"counter","status":"ok","points":[...],"confidence":0.8}
+event: node    data: {"id":"truth","status":"ok","opinions":[{"claim":"...","weight":0.8,"why":"..."}]}
 event: token   data: {"t":"..."}
-event: done    data: { answer, summary, nodes, meta }   // 一括JSONと同形
+event: done    data: { answer, summary, nodes, meta }   // 一括JSONと同形 (meta に plan/domain/tension)
 event: error   data: {"message":"..."}
 ```
 

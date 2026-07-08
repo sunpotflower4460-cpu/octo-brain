@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { classifyRoute, parseRoute } from "../src/lib/router.js";
+import { classifyDomain, parseDomain } from "../src/lib/router.js";
 import type { Env } from "../src/types.js";
 
 const env: Env = {
@@ -24,36 +24,35 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("parseRoute", () => {
-  it("simple/normal/complex を判別する", () => {
-    expect(parseRoute("simple")).toBe("simple");
-    expect(parseRoute("NORMAL")).toBe("normal");
-    expect(parseRoute("  complex  ")).toBe("complex");
-    expect(parseRoute("これは complex な問題です")).toBe("complex");
+describe("parseDomain", () => {
+  it("ドメイン語を判別する", () => {
+    expect(parseDomain("love")).toBe("love");
+    expect(parseDomain("WORK")).toBe("work");
+    expect(parseDomain("これは money の相談")).toBe("money");
+    expect(parseDomain("family")).toBe("family");
+    expect(parseDomain("self")).toBe("self");
   });
 
-  it("判別不能なら normal", () => {
-    expect(parseRoute("わかりません")).toBe("normal");
-    expect(parseRoute("")).toBe("normal");
+  it("判別不能なら general", () => {
+    expect(parseDomain("わかりません")).toBe("general");
+    expect(parseDomain("")).toBe("general");
+    expect(parseDomain("general")).toBe("general");
   });
 });
 
-describe("classifyRoute", () => {
-  it("モデル応答を分類に変換する", async () => {
-    mockFetch("complex");
-    const route = await classifyRoute("難しい問い", { env });
-    expect(route).toBe("complex");
+describe("classifyDomain", () => {
+  it("モデル応答をドメインに変換する", async () => {
+    mockFetch("work");
+    expect(await classifyDomain("転職すべきか", { env })).toBe("work");
   });
 
-  it("不正応答は normal にフォールバック", async () => {
+  it("不正応答は general にフォールバック", async () => {
     mockFetch("42");
-    const route = await classifyRoute("入力", { env });
-    expect(route).toBe("normal");
+    expect(await classifyDomain("入力", { env })).toBe("general");
   });
 
-  it("呼び出し失敗(5xx)でも normal を返す", async () => {
+  it("呼び出し失敗(5xx)でも general を返す", async () => {
     mockFetch("err", 500);
-    const route = await classifyRoute("入力", { env });
-    expect(route).toBe("normal");
+    expect(await classifyDomain("入力", { env })).toBe("general");
   });
 });

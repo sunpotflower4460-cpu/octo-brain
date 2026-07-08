@@ -1,27 +1,21 @@
-// 並列ノード実行 (docs/00_architecture.md §2, §3)。
-// 起動ノードを Promise.allSettled で並列実行し、各ノードに8秒タイムアウト。
-// JSONパース失敗は parse_error として棄却 (リトライしない)。クォーラム判定を行う。
+// 並列レンズ実行 (docs/01_depth_design.md §4, docs/00_architecture.md §2, §3)。
+// 起動レンズを Promise.allSettled で並列実行し、各腕に8秒タイムアウト。
+// JSONパース失敗は parse_error として棄却(リトライしない)。クォーラム判定を行う。
 
 import { callModel } from "./callModel.js";
-import {
-  QUORUM,
-  ROUTE_NODES,
-  nodeDef,
-  nodeSystemPrompt,
-  type NodeId,
-} from "../config/nodes.js";
+import { nodeDef, nodeSystemPrompt, type NodeId } from "../config/nodes.js";
 import { pickNodeModel } from "../config/models.js";
 import type {
   CostSink,
   Env,
   NodeFlag,
   NodeResult,
-  Route,
+  Opinion,
 } from "../types.js";
 
 const NODE_TIMEOUT_MS = 8000;
-const MAX_POINTS = 3;
-const MAX_POINT_LEN = 60;
+const MAX_OPINIONS = 3;
+const MAX_FIELD_LEN = 60;
 
 export interface RunNodesOpts {
   env: Env;
@@ -29,7 +23,7 @@ export interface RunNodesOpts {
   signal?: AbortSignal;
   // テスト用。既定は8秒。
   nodeTimeoutMs?: number;
-  // 各ノードが完了した順に呼ばれる (SSEの node イベント逐次送出用)。
+  // 各レンズが完了した順に呼ばれる(SSEの node イベント逐次送出用)。
   onNodeComplete?: (node: NodeResult) => void;
 }
 
@@ -37,31 +31,29 @@ export interface RunNodesResult {
   nodes: NodeResult[];
   successCount: number;
   required: number;
-  // クォーラム未達なら true (§3: 統合をスキップして単発フォールバック)
+  // クォーラム未達なら true(統合をスキップして単発フォールバック)
   fallback: boolean;
 }
 
+// 起動する lensIds と最低成功数 required を受けて並列実行する。
 export async function runNodes(
-  route: Route,
+  lensIds: NodeId[],
+  required: number,
   input: string,
   summary: string,
   opts: RunNodesOpts,
 ): Promise<RunNodesResult> {
-  const ids = ROUTE_NODES[route];
-  const required = QUORUM[route];
   const timeoutMs = opts.nodeTimeoutMs ?? NODE_TIMEOUT_MS;
   const userText = buildNodeUserText(input, summary);
 
   const settled = await Promise.allSettled(
-    ids.map((id, i) => runOne(id, i, userText, timeoutMs, opts)),
+    lensIds.map((id, i) => runOne(id, i, userText, timeoutMs, opts)),
   );
 
-  // runOne は内部で例外を握って NodeResult を返すので基本 fulfilled。
-  // 念のため rejected は error 扱いにする。
   const nodes: NodeResult[] = settled.map((s, i) =>
     s.status === "fulfilled"
       ? s.value
-      : { id: ids[i], status: "error", points: [], confidence: 0, flag: null },
+      : { id: lensIds[i], status: "error", opinions: [], flag: null },
   );
 
   const successCount = nodes.filter((n) => n.status === "ok").length;
@@ -99,9 +91,8 @@ async function runOne(
     opts.onNodeComplete?.(parsed);
     return parsed;
   } catch {
-    // タイムアウト由来の中断は timeout、それ以外は error
     const status = ctrl.signal.aborted ? "timeout" : "error";
-    const failed: NodeResult = { id, status, points: [], confidence: 0, flag: null };
+    const failed: NodeResult = { id, status, opinions: [], flag: null };
     opts.onNodeComplete?.(failed);
     return failed;
   } finally {
@@ -110,7 +101,7 @@ async function runOne(
   }
 }
 
-// ノードに渡す user メッセージ。ローリング要約(あれば)+今回の入力のみ (§6)。
+// レンズに渡す user メッセージ。ローリング要約(あれば)+今回の入力のみ。
 export function buildNodeUserText(input: string, summary: string): string {
   const parts: string[] = [];
   if (summary.trim().length > 0) {
@@ -124,13 +115,12 @@ export function buildNodeUserText(input: string, summary: string): string {
 export function parseNodeResponse(id: NodeId, raw: string): NodeResult {
   const obj = tryParseObject(raw);
   if (obj === null) {
-    return { id, status: "parse_error", points: [], confidence: 0, flag: null };
+    return { id, status: "parse_error", opinions: [], flag: null };
   }
   return {
     id,
     status: "ok",
-    points: normalizePoints(obj.points),
-    confidence: clamp01(obj.confidence),
+    opinions: normalizeOpinions(obj.opinions),
     flag: normalizeFlag(obj.flag),
   };
 }
@@ -138,7 +128,6 @@ export function parseNodeResponse(id: NodeId, raw: string): NodeResult {
 function tryParseObject(raw: string): Record<string, unknown> | null {
   const direct = parseJsonObject(raw);
   if (direct) return direct;
-  // 応答文字列から最初の { ... 最後の } を1回だけ抽出して再試行
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
   if (start !== -1 && end > start) {
@@ -158,19 +147,38 @@ function parseJsonObject(s: string): Record<string, unknown> | null {
   }
 }
 
-// points: 文字列のみ・各60字に切り詰め・最大3つ (§2)。
-function normalizePoints(v: unknown): string[] {
+// opinions: フラット・最大3・claim/why 各60字・weight 0〜1 (§4.1)。
+// claim を持たない不正要素は除去する。
+function normalizeOpinions(v: unknown): Opinion[] {
   if (!Array.isArray(v)) return [];
-  return v
-    .filter((p): p is string => typeof p === "string")
-    .map((p) => p.trim())
-    .filter((p) => p.length > 0)
-    .slice(0, MAX_POINTS)
-    .map((p) => (p.length > MAX_POINT_LEN ? p.slice(0, MAX_POINT_LEN) : p));
+  const out: Opinion[] = [];
+  for (const el of v) {
+    if (el === null || typeof el !== "object" || Array.isArray(el)) continue;
+    const o = el as Record<string, unknown>;
+    const claim = truncate(asString(o.claim));
+    if (claim.length === 0) continue; // 不正要素の除去
+    out.push({
+      claim,
+      weight: clampWeight(o.weight),
+      why: truncate(asString(o.why)),
+    });
+    if (out.length >= MAX_OPINIONS) break;
+  }
+  return out;
 }
 
-function clamp01(v: unknown): number {
-  if (typeof v !== "number" || !Number.isFinite(v)) return 0;
+function truncate(s: string): string {
+  const t = s.trim();
+  return t.length > MAX_FIELD_LEN ? t.slice(0, MAX_FIELD_LEN) : t;
+}
+
+function asString(v: unknown): string {
+  return typeof v === "string" ? v : "";
+}
+
+// weight は 0〜1 にクランプ。不正/欠落は中立 0.5。
+function clampWeight(v: unknown): number {
+  if (typeof v !== "number" || !Number.isFinite(v)) return 0.5;
   return Math.min(1, Math.max(0, v));
 }
 

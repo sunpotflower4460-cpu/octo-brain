@@ -5,13 +5,15 @@ import type { ModelRole } from "./config/models.js";
 import { MODELS } from "./config/models.js";
 import { runAnalyze } from "./lib/analyze.js";
 import { runAnalyzeStream } from "./lib/analyzeStream.js";
-import type { AnalyzeMode, ChatMessage, Env } from "./types.js";
+import { runDeepen, resolveAxis } from "./lib/deepen.js";
+import type { ChatMessage, Env, Plan } from "./types.js";
 
-const VERSION = "0.0.0-p2";
+const VERSION = "0.0.0-p1.5";
 
 const MAX_INPUT_LEN = 4000;
 const MAX_SUMMARY_LEN = 500;
-const VALID_MODES: AnalyzeMode[] = ["auto", "simple", "normal", "complex"];
+const MAX_PRIOR_LEN = 8000;
+const VALID_PLANS: Plan[] = ["light", "deep"];
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -78,9 +80,9 @@ app.post("/api/dev/ping-model", async (c) => {
   }
 });
 
-// 入力バリデーション (§P1)。両エンドポイント共通。
+// 入力バリデーション。/api/analyze と /api/analyze/stream で共通。
 type ValidatedBody =
-  | { ok: true; value: { input: string; summary: string; mode: AnalyzeMode; clientId: string } }
+  | { ok: true; value: { input: string; summary: string; plan: Plan; clientId: string } }
   | { ok: false; error: string; extra?: Record<string, unknown> };
 
 function validateAnalyzeBody(body: unknown): ValidatedBody {
@@ -97,11 +99,12 @@ function validateAnalyzeBody(body: unknown): ValidatedBody {
   const clientId = typeof b.clientId === "string" ? b.clientId : "";
   if (clientId.length === 0) return { ok: false, error: "clientId_required" };
 
-  const mode = (typeof b.mode === "string" ? b.mode : "auto") as AnalyzeMode;
-  if (!VALID_MODES.includes(mode)) {
-    return { ok: false, error: "invalid_mode", extra: { allowed: VALID_MODES } };
+  // plan 省略時は light(無料・安全側 §6)
+  const plan = (typeof b.plan === "string" ? b.plan : "light") as Plan;
+  if (!VALID_PLANS.includes(plan)) {
+    return { ok: false, error: "invalid_plan", extra: { allowed: VALID_PLANS } };
   }
-  return { ok: true, value: { input, summary, mode, clientId } };
+  return { ok: true, value: { input, summary, plan, clientId } };
 }
 
 // メイン分析エンドポイント (§9 P1契約: 一括JSON)。ベンチ(P3)でも使う。
@@ -181,6 +184,56 @@ app.post("/api/analyze/stream", async (c) => {
       connection: "keep-alive",
     },
   });
+});
+
+// 深化エンドポイント (P1.5 §6): 最緊張軸の対角2腕を再考させ中央脳が織り直す。
+app.post("/api/deepen", async (c) => {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "invalid_json" }, 400);
+  }
+  const b = (body ?? {}) as Record<string, unknown>;
+
+  const input = typeof b.input === "string" ? b.input : "";
+  if (input.length === 0) return c.json({ error: "input_required" }, 400);
+  if (input.length > MAX_INPUT_LEN) {
+    return c.json({ error: "input_too_long", max: MAX_INPUT_LEN }, 400);
+  }
+  const summary = typeof b.summary === "string" ? b.summary : "";
+  if (summary.length > MAX_SUMMARY_LEN) {
+    return c.json({ error: "summary_too_long", max: MAX_SUMMARY_LEN }, 400);
+  }
+  const clientId = typeof b.clientId === "string" ? b.clientId : "";
+  if (clientId.length === 0) return c.json({ error: "clientId_required" }, 400);
+  const priorAnswer = typeof b.priorAnswer === "string" ? b.priorAnswer : "";
+  if (priorAnswer.length > MAX_PRIOR_LEN) {
+    return c.json({ error: "priorAnswer_too_long", max: MAX_PRIOR_LEN }, 400);
+  }
+
+  // tension.axis のガード: 既知の軸に解決できないと深化できない (§6 tension欠落ガード)
+  const tension = (b.tension ?? {}) as Record<string, unknown>;
+  const axisText = typeof tension.axis === "string" ? tension.axis : "";
+  if (axisText.length === 0 || resolveAxis(axisText) === null) {
+    return c.json({ error: "unknown_or_missing_tension", axis: axisText }, 400);
+  }
+
+  try {
+    const res = await runDeepen(
+      { input, summary, tension: { axis: axisText }, priorAnswer, clientId },
+      { env: c.env, now: new Date(), requestId: crypto.randomUUID() },
+    );
+    return c.json(res);
+  } catch (err) {
+    return c.json(
+      {
+        error: "deepen_error",
+        message: err instanceof Error ? err.message : String(err),
+      },
+      500,
+    );
+  }
 });
 
 export default app;
