@@ -6,9 +6,10 @@ import { MODELS } from "./config/models.js";
 import { runAnalyze } from "./lib/analyze.js";
 import { runAnalyzeStream } from "./lib/analyzeStream.js";
 import { runDeepen, resolveAxis } from "./lib/deepen.js";
+import { runResonate, validateResonancePair } from "./lib/resonate.js";
 import type { ChatMessage, Env, Plan } from "./types.js";
 
-const VERSION = "0.0.0-p1.5";
+const VERSION = "0.0.0-p1.6";
 
 const MAX_INPUT_LEN = 4000;
 const MAX_SUMMARY_LEN = 500;
@@ -229,6 +230,53 @@ app.post("/api/deepen", async (c) => {
     return c.json(
       {
         error: "deepen_error",
+        message: err instanceof Error ? err.message : String(err),
+      },
+      500,
+    );
+  }
+});
+
+// 共鳴(掛け算)エンドポイント (P1.6 §4): 一見遠い2つの意見を掛け合わせ第三の選択肢を生む。
+app.post("/api/resonate", async (c) => {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "invalid_json" }, 400);
+  }
+  const b = (body ?? {}) as Record<string, unknown>;
+
+  const input = typeof b.input === "string" ? b.input : "";
+  if (input.length === 0) return c.json({ error: "input_required" }, 400);
+  if (input.length > MAX_INPUT_LEN) {
+    return c.json({ error: "input_too_long", max: MAX_INPUT_LEN }, 400);
+  }
+  const summary = typeof b.summary === "string" ? b.summary : "";
+  if (summary.length > MAX_SUMMARY_LEN) {
+    return c.json({ error: "summary_too_long", max: MAX_SUMMARY_LEN }, 400);
+  }
+  const clientId = typeof b.clientId === "string" ? b.clientId : "";
+  if (clientId.length === 0) return c.json({ error: "clientId_required" }, 400);
+  const priorAnswer = typeof b.priorAnswer === "string" ? b.priorAnswer : "";
+  if (priorAnswer.length > MAX_PRIOR_LEN) {
+    return c.json({ error: "priorAnswer_too_long", max: MAX_PRIOR_LEN }, 400);
+  }
+
+  // lens(実在NodeId)・claim(120字以内)・a≠b の検証 (§4)
+  const v = validateResonancePair(b.resonance);
+  if (!v.ok) return c.json({ error: v.error }, 400);
+
+  try {
+    const res = await runResonate(
+      { input, summary, resonance: { a: v.a, b: v.b }, priorAnswer, clientId },
+      { env: c.env, now: new Date(), requestId: crypto.randomUUID() },
+    );
+    return c.json(res);
+  } catch (err) {
+    return c.json(
+      {
+        error: "resonate_error",
         message: err instanceof Error ? err.message : String(err),
       },
       500,

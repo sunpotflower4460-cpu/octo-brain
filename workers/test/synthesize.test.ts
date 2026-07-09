@@ -102,3 +102,52 @@ describe("splitAnswerTensionSummary (TENSION + SUMMARY)", () => {
     expect(r.summary.length).toBe(300);
   });
 });
+
+describe("RESONANCE 抽出 (P1.6)", () => {
+  const RES = '---RESONANCE--- {"a":{"lens":"risk","claim":"引き返せない時期"},"b":{"lens":"values","claim":"自律を大切に"},"root":"守りと自由は同じ不安から来ている"}';
+
+  it("3連マーカー(RESONANCE→TENSION→SUMMARY)が正順で全部切れる", () => {
+    const text =
+      "回答本文。\n" +
+      RES +
+      '\n---TENSION--- {"axis":"動の軸","reason":"r"}\n' +
+      "---SUMMARY---\n更新要約";
+    const r = splitAnswerTensionSummary(text, "旧");
+    expect(r.answer).toBe("回答本文。");
+    expect(r.resonance).toEqual({
+      a: { lens: "risk", claim: "引き返せない時期" },
+      b: { lens: "values", claim: "自律を大切に" },
+      root: "守りと自由は同じ不安から来ている",
+    });
+    expect(r.tension?.axis).toBe("動の軸");
+    expect(r.summary).toBe("更新要約");
+  });
+
+  it("RESONANCE 欠落でも TENSION/SUMMARY は切れる、resonance=null", () => {
+    const text = '回答\n---TENSION--- {"axis":"心の軸","reason":"r"}\n---SUMMARY---\n要約';
+    const r = splitAnswerTensionSummary(text, "");
+    expect(r.resonance).toBeNull();
+    expect(r.tension?.axis).toBe("心の軸");
+    expect(r.answer).toBe("回答");
+  });
+
+  it("lens が実在NodeIdでなければ resonance=null(非致命)", () => {
+    const bad =
+      '本文\n---RESONANCE--- {"a":{"lens":"bogus","claim":"x"},"b":{"lens":"values","claim":"y"},"root":"根"}\n---SUMMARY---\n要約';
+    const r = splitAnswerTensionSummary(bad, "");
+    expect(r.resonance).toBeNull();
+    expect(r.summary).toBe("要約"); // 他は生きている
+  });
+
+  it("a と b が同一 lens なら resonance=null", () => {
+    const same =
+      '本文\n---RESONANCE--- {"a":{"lens":"risk","claim":"x"},"b":{"lens":"risk","claim":"y"},"root":"根"}\n';
+    expect(splitAnswerTensionSummary(same, "").resonance).toBeNull();
+  });
+
+  it("root が空なら resonance=null", () => {
+    const noRoot =
+      '本文\n---RESONANCE--- {"a":{"lens":"risk","claim":"x"},"b":{"lens":"values","claim":"y"},"root":""}\n';
+    expect(splitAnswerTensionSummary(noRoot, "").resonance).toBeNull();
+  });
+});

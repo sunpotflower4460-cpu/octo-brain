@@ -14,6 +14,7 @@ import type {
   NodeResult,
   Opinion,
   Plan,
+  Resonance,
   Tension,
 } from "../types.js";
 
@@ -43,6 +44,7 @@ export interface AnalyzeMeta {
   quorum: string;
   fallback: boolean;
   tension: Tension | null;
+  resonance: Resonance | null;
   verified: "pass" | "modified";
   totalCost: number;
   ms: number;
@@ -121,6 +123,7 @@ export async function runAnalyze(
     quorum: quorumStr,
     fallback: run.fallback,
     tension: synth.tension,
+    resonance: synth.resonance,
     verified: verified.modified ? "modified" : "pass",
     totalCost: collector.totalCost(),
     ms: Date.now() - started,
