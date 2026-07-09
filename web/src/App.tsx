@@ -1,22 +1,29 @@
 import { useEffect, useRef, useState } from "react";
-import { Send, Bot, User, Cpu, Sparkles, BrainCircuit, Waypoints } from "lucide-react";
+import { Send, Bot, User, Cpu, Sparkles, BrainCircuit, Waypoints, Link2 } from "lucide-react";
 import OctopusCanvas from "./components/OctopusCanvas";
 import NodePerspectives from "./components/NodePerspectives";
-import { analyzeStream, deepen } from "./lib/api";
+import { analyzeStream, deepen, resonate } from "./lib/api";
 import { phaseToAppState } from "./lib/phase";
-import { armsForAxis } from "./config/nodeDisplay";
-import type { AnalyzeMeta, AppState, NodeView, Plan } from "./types";
+import { armsForAxis, armsForLenses, displayFor } from "./config/nodeDisplay";
+import type { AnalyzeMeta, AppState, NodeView, Plan, ResonancePair } from "./types";
+
+interface ResonateResult {
+  label: string;
+  answer: string;
+}
 
 interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
-  sourceInput?: string; // この回答を生んだユーザー入力(深化で使う)
+  sourceInput?: string; // この回答を生んだユーザー入力(深化・共鳴で使う)
   nodes?: NodeView[];
   meta?: AnalyzeMeta;
   streaming?: boolean;
   deepened?: { answer: string; axis: string }; // 深化結果
   deepenError?: string;
+  resonances?: ResonateResult[]; // 共鳴(掛け算)結果。AI提案・ユーザー選択の両方
+  resonateError?: string;
 }
 
 function uuid(): string {
@@ -41,6 +48,9 @@ export default function App() {
   // 深化中に光らせる対角2腕(null=通常)
   const [deepenArms, setDeepenArms] = useState<number[] | null>(null);
   const [deepeningId, setDeepeningId] = useState<string | null>(null);
+  // 共鳴中に呼応させる2腕(null=通常)
+  const [resonanceArms, setResonanceArms] = useState<number[] | null>(null);
+  const [resonatingId, setResonatingId] = useState<string | null>(null);
 
   const summaryRef = useRef("");
   const clientIdRef = useRef(uuid());
@@ -152,9 +162,57 @@ export default function App() {
     }
   };
 
+  // 共鳴(掛け算): 一見遠い2意見を掛け合わせ第三の選択肢を生む。
+  // AI提案ペア(meta.resonance)でも、ユーザー選択ペアでも同じ経路。
+  const handleResonate = async (
+    msg: ChatMessage,
+    pair: { a: ResonancePair; b: ResonancePair },
+  ) => {
+    if (busy || !msg.sourceInput) return;
+
+    const arms = armsForLenses([pair.a.lens, pair.b.lens]);
+    setResonanceArms(arms.length > 0 ? arms : null);
+    setAppState("processing_subs");
+    setResonatingId(msg.id);
+
+    const label = `共鳴: ${displayFor(pair.a.lens).uiName} × ${displayFor(pair.b.lens).uiName}`;
+    try {
+      const res = await resonate({
+        input: msg.sourceInput,
+        summary: summaryRef.current || undefined,
+        resonance: pair,
+        priorAnswer: msg.content,
+        clientId: clientIdRef.current,
+      });
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === msg.id
+            ? {
+                ...m,
+                resonances: [...(m.resonances ?? []), { label, answer: res.answer }],
+                resonateError: undefined,
+              }
+            : m,
+        ),
+      );
+    } catch (err) {
+      patchMessage(msg.id, {
+        resonateError: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setResonatingId(null);
+      setResonanceArms(null);
+      setAppState("idle");
+    }
+  };
+
   return (
     <div className="relative min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-cyan-500/30 overflow-hidden flex flex-col">
-      <OctopusCanvas appState={appState} deepenArms={deepenArms} />
+      <OctopusCanvas
+        appState={appState}
+        deepenArms={deepenArms}
+        resonanceArms={resonanceArms}
+      />
 
       <header className="relative z-10 p-5 flex justify-center items-center backdrop-blur-md bg-slate-950/40 border-b border-slate-800/60 shadow-lg shadow-black/50">
         <div className="flex items-center gap-3">
@@ -261,8 +319,83 @@ export default function App() {
                 </div>
               )}
 
+              {/* 共鳴カード(AI提案): meta.resonance があるとき。深化(⚡緊張)と区別し ✨響き合い */}
+              {msg.role === "assistant" && !msg.streaming && msg.meta?.resonance && (
+                <div className="mt-3 rounded-xl border border-cyan-800/40 bg-cyan-950/20 p-3">
+                  <div className="flex items-center gap-2 text-xs text-cyan-200/90">
+                    <Sparkles className="w-4 h-4 text-cyan-400" />
+                    <span>
+                      離れた2つの視点が<b className="text-cyan-300">響き合って</b>います
+                    </span>
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+                    <span className="rounded bg-slate-800/60 border border-slate-700/50 px-2 py-1 text-slate-200">
+                      {displayFor(msg.meta.resonance.a.lens).emoji}{" "}
+                      {displayFor(msg.meta.resonance.a.lens).uiName}:{" "}
+                      {msg.meta.resonance.a.claim}
+                    </span>
+                    <span className="inline-flex items-center gap-1 text-cyan-400/90">
+                      <Link2 className="w-3 h-3" />
+                      {msg.meta.resonance.root}
+                    </span>
+                    <span className="rounded bg-slate-800/60 border border-slate-700/50 px-2 py-1 text-slate-200">
+                      {displayFor(msg.meta.resonance.b.lens).emoji}{" "}
+                      {displayFor(msg.meta.resonance.b.lens).uiName}:{" "}
+                      {msg.meta.resonance.b.claim}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() =>
+                      msg.meta?.resonance &&
+                      handleResonate(msg, {
+                        a: msg.meta.resonance.a,
+                        b: msg.meta.resonance.b,
+                      })
+                    }
+                    disabled={busy}
+                    className="mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-semibold bg-gradient-to-r from-cyan-600 to-sky-600 hover:from-cyan-500 hover:to-sky-500 text-white shadow-lg shadow-cyan-500/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    掛け合わせる
+                  </button>
+                </div>
+              )}
+
               {msg.role === "assistant" && msg.nodes && (
-                <NodePerspectives nodes={msg.nodes} />
+                <NodePerspectives
+                  nodes={msg.nodes}
+                  busy={busy}
+                  onResonate={(pair) => handleResonate(msg, pair)}
+                />
+              )}
+
+              {/* 共鳴中インジケータ(AI提案・ユーザー選択どちらでも) */}
+              {resonatingId === msg.id && (
+                <div className="mt-2 flex items-center gap-2 text-xs text-cyan-300 animate-pulse">
+                  <Link2 className="w-4 h-4" />
+                  2本の腕が響き合っています...
+                </div>
+              )}
+
+              {/* 共鳴結果 */}
+              {msg.role === "assistant" &&
+                msg.resonances?.map((r, i) => (
+                  <div
+                    key={i}
+                    className="mt-3 rounded-lg border border-cyan-700/40 bg-slate-900/60 p-3"
+                  >
+                    <div className="text-[11px] font-semibold text-cyan-300 mb-1">
+                      ✨ {r.label}
+                    </div>
+                    <div className="text-sm text-slate-100 whitespace-pre-wrap leading-relaxed">
+                      {r.answer}
+                    </div>
+                  </div>
+                ))}
+              {msg.role === "assistant" && msg.resonateError && (
+                <p className="mt-2 text-[11px] text-rose-400/80">
+                  共鳴に失敗しました({msg.resonateError})
+                </p>
               )}
 
               {msg.role === "assistant" && msg.meta && (
@@ -279,6 +412,14 @@ export default function App() {
         ))}
 
         <div className="h-10 flex items-center justify-center transition-all duration-300">
+          {resonanceArms !== null && (
+            <div className="flex items-center gap-3 text-cyan-200 animate-pulse bg-cyan-950/60 px-5 py-2.5 rounded-full border border-cyan-400/40 backdrop-blur-lg shadow-[0_0_15px_rgba(103,232,249,0.3)]">
+              <Link2 className="w-5 h-5" />
+              <span className="text-sm md:text-base font-semibold tracking-wide">
+                2本の腕が呼応し、響き合っています...
+              </span>
+            </div>
+          )}
           {deepenArms !== null && (
             <div className="flex items-center gap-3 text-fuchsia-300 animate-pulse bg-fuchsia-950/60 px-5 py-2.5 rounded-full border border-fuchsia-500/40 backdrop-blur-lg shadow-[0_0_15px_rgba(217,70,239,0.3)]">
               <Waypoints className="w-5 h-5" />
@@ -287,7 +428,7 @@ export default function App() {
               </span>
             </div>
           )}
-          {deepenArms === null && appState === "processing_subs" && (
+          {deepenArms === null && resonanceArms === null && appState === "processing_subs" && (
             <div className="flex items-center gap-3 text-cyan-400 animate-pulse bg-cyan-950/60 px-5 py-2.5 rounded-full border border-cyan-500/40 backdrop-blur-lg shadow-[0_0_15px_rgba(6,182,212,0.3)]">
               <Cpu className="w-5 h-5" />
               <span className="text-sm md:text-base font-semibold tracking-wide">
@@ -295,7 +436,7 @@ export default function App() {
               </span>
             </div>
           )}
-          {deepenArms === null && appState === "processing_main" && (
+          {deepenArms === null && resonanceArms === null && appState === "processing_main" && (
             <div className="flex items-center gap-3 text-purple-400 animate-pulse bg-purple-950/60 px-5 py-2.5 rounded-full border border-purple-500/40 backdrop-blur-lg shadow-[0_0_15px_rgba(168,85,247,0.3)]">
               <Sparkles className="w-5 h-5" />
               <span className="text-sm md:text-base font-semibold tracking-wide">
@@ -331,9 +472,11 @@ export default function App() {
           <form
             onSubmit={handleSubmit}
             className={`relative flex items-center bg-slate-900/80 backdrop-blur-2xl border-2 rounded-full shadow-2xl transition-all duration-500 overflow-hidden ${
-              deepenArms !== null
-                ? "border-fuchsia-500/50 shadow-fuchsia-500/20"
-                : appState === "idle"
+              resonanceArms !== null
+                ? "border-cyan-400/50 shadow-cyan-400/20"
+                : deepenArms !== null
+                  ? "border-fuchsia-500/50 shadow-fuchsia-500/20"
+                  : appState === "idle"
                   ? "border-slate-700/60 focus-within:border-cyan-500/60 focus-within:shadow-cyan-500/20"
                   : appState === "processing_subs"
                     ? "border-cyan-500/50 shadow-cyan-500/20"

@@ -7,6 +7,8 @@ import type {
   DeepenResponse,
   DonePayload,
   NodeView,
+  ResonateRequestBody,
+  ResonateResponse,
   SSEPhase,
 } from "../types";
 
@@ -78,6 +80,24 @@ export async function deepen(
     throw new Error(`HTTP ${res.status}: ${text.slice(0, 300)}`);
   }
   return (await res.json()) as DeepenResponse;
+}
+
+// 共鳴/掛け算 (P1.6 §4): 一見遠い2意見を掛け合わせ第三の選択肢を得る。
+export async function resonate(
+  body: ResonateRequestBody,
+  signal?: AbortSignal,
+): Promise<ResonateResponse> {
+  const res = await fetch(`${API_BASE}/api/resonate`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`HTTP ${res.status}: ${text.slice(0, 300)}`);
+  }
+  return (await res.json()) as ResonateResponse;
 }
 
 function dispatch(
