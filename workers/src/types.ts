@@ -57,6 +57,18 @@ export interface Tension {
   reason: string;
 }
 
+// 共鳴 (P1.6): 軸をまたいで響き合う2つのopinionの組と、その共通の根。
+// {8/2}の対角線=TENSION(対立から掘る)の対概念。{8/3}の一筆書き=RESONANCE(結合から生む)。
+export interface ResonancePair {
+  lens: string; // NodeId
+  claim: string;
+}
+export interface Resonance {
+  a: ResonancePair;
+  b: ResonancePair;
+  root: string; // 共通の根
+}
+
 export type NodeStatus = "ok" | "timeout" | "parse_error" | "error" | "skipped";
 export type NodeFlag = null | "insufficient_input" | "off_topic";
 

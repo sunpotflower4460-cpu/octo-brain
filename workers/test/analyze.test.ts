@@ -20,6 +20,9 @@ const OK_JSON = JSON.stringify({
 const SYNTH_TENSION =
   '最終回答本文\n---TENSION--- {"axis":"心の軸","reason":"r"}\n---SUMMARY---\n新しい要約';
 const SYNTH_NO_TENSION = "フォールバック回答\n---SUMMARY---\n要約";
+const SYNTH_RESONANCE =
+  '回答本文\n---RESONANCE--- {"a":{"lens":"risk","claim":"x"},"b":{"lens":"values","claim":"y"},"root":"共通の根"}\n' +
+  '---TENSION--- {"axis":"心の軸","reason":"r"}\n---SUMMARY---\n要約v';
 
 function makeEnv(): { env: Env; store: Map<string, string> } {
   const store = new Map<string, string>();
@@ -129,6 +132,37 @@ describe("runAnalyze パイプライン (P1.5)", () => {
     expect(res.answer).toBe("フォールバック回答");
     expect(res.meta.tension).toBeNull();
     expect(res.nodes.every((n) => n.status === "parse_error")).toBe(true);
+  });
+
+  it("響き合いがあれば meta.resonance が返り、無ければ null", async () => {
+    // 響き合いあり
+    mockedCall.mockImplementation(
+      dispatch("general", OK_JSON, SYNTH_RESONANCE) as unknown as typeof callModel,
+    );
+    let env = makeEnv().env;
+    const withRes = await runAnalyze(
+      { input: "x", summary: "", plan: "deep", clientId: "c1" },
+      { env, now: new Date(), requestId: "req-r1" },
+    );
+    expect(withRes.meta.resonance).toEqual({
+      a: { lens: "risk", claim: "x" },
+      b: { lens: "values", claim: "y" },
+      root: "共通の根",
+    });
+    // 本文に機械可読行が漏れない
+    expect(withRes.answer).toBe("回答本文");
+    expect(withRes.answer).not.toContain("RESONANCE");
+
+    // 響き合いなし
+    mockedCall.mockImplementation(
+      dispatch("general", OK_JSON, SYNTH_TENSION) as unknown as typeof callModel,
+    );
+    env = makeEnv().env;
+    const noRes = await runAnalyze(
+      { input: "x", summary: "", plan: "deep", clientId: "c1" },
+      { env, now: new Date(), requestId: "req-r2" },
+    );
+    expect(noRes.meta.resonance).toBeNull();
   });
 
   it("verifier が修正すると verified=modified", async () => {

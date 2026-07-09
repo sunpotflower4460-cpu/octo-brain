@@ -97,6 +97,7 @@ export async function runAnalyzeStream(
     quorum: quorumStr,
     fallback: run.fallback,
     tension: synth.tension,
+    resonance: synth.resonance,
     verified: verified.modified ? "modified" : "pass",
     totalCost: collector.totalCost(),
     ms: Date.now() - started,

@@ -86,6 +86,8 @@ curl -X POST http://localhost:8787/api/analyze \
   "meta": {
     "plan": "deep", "domain": "work", "quorum": "8/8", "fallback": false,
     "tension": { "axis": "心の軸", "reason": "..." } ,   // 最緊張軸。欠落時は null
+    "resonance": { "a": {"lens":"risk","claim":"..."},   // 共鳴。欠落時は null (P1.6)
+                   "b": {"lens":"values","claim":"..."}, "root": "共通の根" },
     "verified": "pass", "totalCost": 0.0031, "ms": 4200, "quotaUsed": 3
   }
 }
@@ -95,6 +97,8 @@ curl -X POST http://localhost:8787/api/analyze \
   に応じて2軸4腕、`deep` は全8腕(§4.3 の軸マッピング)。省略時は `light`(安全側)。
 - ノード出力は **opinions 形式**(`points` から移行, §4.1)。各 claim/why は60字以内、weight は0〜1。
 - `meta.tension` に統合脳が検出した最緊張軸が入る(`---TENSION---` から抽出)。欠落時は `null`(深化ボタン非表示)。
+- `meta.resonance` に軸をまたいで響き合う2意見の組が入る(`---RESONANCE---` から抽出, P1.6)。欠落時は `null`。
+  マーカー順は 本文 → RESONANCE(任意) → TENSION → SUMMARY。いずれもストリーム・一括の両方で本文に漏れない。
 - クォーラム未達時は `meta.fallback: true`(統合脳の単発回答。TENSIONは出ない)。
 - 原価ログ (`cost:{yyyymmdd}:{requestId}`) とクォータ (`quota:{clientId}:{yyyymm}`) が KV に書かれる。
 - KV書き込み等の部分失敗は `meta.warnings` に載せて可視化する(握りつぶさない)。
@@ -116,6 +120,26 @@ curl -X POST http://localhost:8787/api/deepen \
   解決できないと **400 `unknown_or_missing_tension`**(深化ボタンのガード)。
 - 対角2腕の再考(2コール・Flash)+ 中央脳の織り直し(1コール)。原価は KV に記録。
 
+### 共鳴 (resonate) — P1.6(掛け算)
+
+`POST /api/resonate`。一見遠い2つの意見を掛け合わせ、第三の選択肢を生む(bisociation)。
+**AIが提案したペア(`meta.resonance`)でも、ユーザーが自分で選んだ2つの opinion でも同じ形で受ける。**
+
+```bash
+curl -X POST http://localhost:8787/api/resonate \
+  -H 'content-type: application/json' \
+  -d '{"input":"転職すべきか","summary":"","priorAnswer":"<前回のanswer>",
+       "resonance":{"a":{"lens":"risk","claim":"引き返せない時期"},
+                    "b":{"lens":"values","claim":"自律を大切に"}},
+       "clientId":"dev-uuid-1234"}'
+# => { "answer": "2つを掛け合わせた第三の選択肢",
+#      "meta": { "pair": {...}, "calls": 1, "totalCost": 0.0018, "ms": 2600 } }
+```
+
+- `lens` は実在する8レンズID(reason/emotion/risk/empathy/future/truth/step/values)。
+  不正 lens → 400 `invalid_lens`、a と b が同一 lens → 400 `same_lens`、claim 120字超 → 400 `claim_too_long`。
+- 1コール(synth=Pro, max_tokens 800)。原価は KV に記録。
+
 ### 分析 (ストリーミング) — P2
 
 `POST /api/analyze/stream`(リクエストボディは `/api/analyze` と同じ)。
@@ -125,7 +149,7 @@ curl -X POST http://localhost:8787/api/deepen \
 event: phase   data: {"phase":"routing"|"nodes"|"synth"|"verify"}
 event: node    data: {"id":"truth","status":"ok","opinions":[{"claim":"...","weight":0.8,"why":"..."}]}
 event: token   data: {"t":"..."}
-event: done    data: { answer, summary, nodes, meta }   // 一括JSONと同形 (meta に plan/domain/tension)
+event: done    data: { answer, summary, nodes, meta }   // 一括JSONと同形 (meta に plan/domain/tension/resonance)
 event: error   data: {"message":"..."}
 ```
 

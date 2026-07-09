@@ -1,16 +1,31 @@
-// Synthesizer = 中央脳 (docs/01_depth_design.md §5)。
+// Synthesizer = 中央脳 (docs/01_depth_design.md §5, P1.6 共鳴)。
 // 「まとめ」から「掘り」へ。8本の腕 = 4つの対角軸の報告を一つの深い理解に織り上げ、
-// 最緊張軸を ---TENSION--- で、更新版要約を ---SUMMARY--- で機械可読に出力する。
-// マーカー順: 本文 → ---TENSION--- → ---SUMMARY---
+// 共鳴を ---RESONANCE--- で、最緊張軸を ---TENSION--- で、更新版要約を ---SUMMARY--- で
+// 機械可読に出力する。マーカー順: 本文 → ---RESONANCE---(任意) → ---TENSION--- → ---SUMMARY---
 
 import { callModel } from "./callModel.js";
 import { callModelStream } from "./callModelStream.js";
-import { axisLabel, nodeDef, type NodeId, type Square } from "../config/nodes.js";
-import type { CostSink, Env, NodeResult, Opinion, Tension } from "../types.js";
+import {
+  axisLabel,
+  isNodeId,
+  nodeDef,
+  type NodeId,
+  type Square,
+} from "../config/nodes.js";
+import type {
+  CostSink,
+  Env,
+  NodeResult,
+  Opinion,
+  Resonance,
+  Tension,
+} from "../types.js";
 
+const RESONANCE_MARKER = "---RESONANCE---";
 const TENSION_MARKER = "---TENSION---";
 const SUMMARY_MARKER = "---SUMMARY---";
 const SUMMARY_MAX_LEN = 300;
+const CLAIM_MAX_LEN = 120;
 const CONFIDENCE_FLOOR = 0.4;
 
 // §5 の「掘る版」手順(固定文)。
@@ -22,16 +37,19 @@ const SYNTH_PROCEDURE = `あなたはOctoBrainの中央脳。8本の腕 — 4つ
 5. weight<0.4のopinionは参考扱い、flagが立っている報告は除外する
 6. 構成: 引用から始まる導入 → 織り上げた理解(軸の緊張を含む) → 見方が分かれる点(残る場合のみ) → 次の一歩
 7. 最後に、本人がまだ言葉にしていない問いをひとつだけ置く
+8. 軸をまたいで、遠いのに響き合う opinion の組がひとつだけあれば ${RESONANCE_MARKER} 行を出す(§共鳴)。基準: (a)異なる軸に属する (b)共通の根が一文で言える (c)組み合わせると新しい選択肢が生まれる。3つすべて満たすときだけ。無理に作らない。該当が無ければ出さない
 - 腕のIDや「ノード3によると」のような機械的引用は禁止。自然な文章に溶かす
 - 断定は根拠の強さに比例させる`;
 
 // フォールバック時 (クォーラム未達): ノード補助なしで単発直接回答。
 const FALLBACK_PROCEDURE = `あなたはOctoBrainの中央脳です。分析腕の補助が得られなかったため、以下の入力にあなた自身の判断で誠実かつ具体的に直接回答せよ。一般論を避け、この人の状況に踏み込む。過剰な断定を避け、根拠の強さに応じた言い方をする。`;
 
-// TENSION + SUMMARY 出力指示(固定文)。
-const TENSION_SUMMARY_DIRECTIVE = `回答本文を出力し終えたら、次の2つの機械可読ブロックをこの順で必ず付ける(本文・要約には混ぜない):
-まず "${TENSION_MARKER}" を置き、同じ行に {"axis":"時の軸|心の軸|動の軸|魂の軸 のいずれか","reason":"なぜその軸が最も張り詰めているかを一文で"} を出力する。
-続けて "${SUMMARY_MARKER}" を単独行で置き、その後に今回のやり取りを踏まえた${SUMMARY_MAX_LEN}字以内の更新版会話要約のみを出力する(見出し・前置き・箇条書き記号は付けない)。`;
+// RESONANCE(任意)+ TENSION + SUMMARY 出力指示(固定文)。
+// マーカー順を厳守: 本文 → RESONANCE(任意) → TENSION → SUMMARY。本文・要約に混ぜない。
+const TENSION_SUMMARY_DIRECTIVE = `回答本文を出力し終えたら、機械可読ブロックを次の順で付ける(本文・要約には混ぜない):
+1. 響き合う組がひとつだけ確実にあるときのみ "${RESONANCE_MARKER}" を置き、同じ行に {"a":{"lens":"<レンズID>","claim":"<元claimを引用>"},"b":{"lens":"<レンズID>","claim":"..."},"root":"共通の根を一文で"} を出力する(無ければこの行を省略)。lens は reason/emotion/risk/empathy/future/truth/step/values のいずれか。
+2. "${TENSION_MARKER}" を置き、同じ行に {"axis":"時の軸|心の軸|動の軸|魂の軸 のいずれか","reason":"なぜその軸が最も張り詰めているかを一文で"} を出力する。
+3. "${SUMMARY_MARKER}" を単独行で置き、その後に今回のやり取りを踏まえた${SUMMARY_MAX_LEN}字以内の更新版会話要約のみを出力する(見出し・前置き・箇条書き記号は付けない)。`;
 
 // フォールバックは軸が無いので TENSION は出さず SUMMARY のみ。
 const SUMMARY_ONLY_DIRECTIVE = `回答本文を出力し終えたら、"${SUMMARY_MARKER}" を単独行で置き、その後に今回のやり取りを踏まえた${SUMMARY_MAX_LEN}字以内の更新版会話要約のみを出力する(見出し・前置き・記号なし)。`;
@@ -49,6 +67,7 @@ export interface SynthResult {
   answer: string;
   summary: string;
   tension: Tension | null;
+  resonance: Resonance | null;
 }
 
 // 中央脳に渡すレンズ報告。除外規則を適用済みの形。軸情報を含める(緊張検出のため)。
@@ -148,23 +167,37 @@ function buildFallbackUserText(input: string, summary: string): string {
   return parts.join("\n\n");
 }
 
-// 本文 / TENSION / SUMMARY を分離(一括版)。マーカー欠落は非致命。
+// 本文 / RESONANCE / TENSION / SUMMARY を分離(一括版)。各マーカー欠落は非致命。
+// マーカー順: 本文 → RESONANCE(任意) → TENSION → SUMMARY。
 export function splitAnswerTensionSummary(
   text: string,
   oldSummary: string,
 ): SynthResult {
+  const rIdx = text.indexOf(RESONANCE_MARKER);
   const tIdx = text.indexOf(TENSION_MARKER);
   const sIdx = text.indexOf(SUMMARY_MARKER);
 
+  // 本文は最初に現れたマーカーの手前まで
   let answerEnd = text.length;
-  if (tIdx !== -1) answerEnd = Math.min(answerEnd, tIdx);
-  if (sIdx !== -1) answerEnd = Math.min(answerEnd, sIdx);
+  for (const i of [rIdx, tIdx, sIdx]) {
+    if (i !== -1) answerEnd = Math.min(answerEnd, i);
+  }
   const answer = text.slice(0, answerEnd).trim();
 
+  // RESONANCE: rIdx から次のマーカー(TENSION/SUMMARY のうち rIdx より後で最小)まで
+  let resonance: Resonance | null = null;
+  if (rIdx !== -1) {
+    resonance = parseResonance(
+      text.slice(rIdx + RESONANCE_MARKER.length, nextMarkerEnd(text, rIdx, [tIdx, sIdx])),
+    );
+  }
+
+  // TENSION: tIdx から次のマーカー(SUMMARY のうち tIdx より後)まで
   let tension: Tension | null = null;
   if (tIdx !== -1) {
-    const tEnd = sIdx !== -1 && sIdx > tIdx ? sIdx : text.length;
-    tension = parseTension(text.slice(tIdx + TENSION_MARKER.length, tEnd));
+    tension = parseTension(
+      text.slice(tIdx + TENSION_MARKER.length, nextMarkerEnd(text, tIdx, [sIdx])),
+    );
   }
 
   let summary = oldSummary;
@@ -173,7 +206,16 @@ export function splitAnswerTensionSummary(
     if (raw.length > 0) summary = raw.slice(0, SUMMARY_MAX_LEN);
   }
 
-  return { answer, summary, tension };
+  return { answer, summary, tension, resonance };
+}
+
+// from より後にある候補マーカー位置の最小。無ければ末尾。
+function nextMarkerEnd(text: string, from: number, candidates: number[]): number {
+  let end = text.length;
+  for (const c of candidates) {
+    if (c !== -1 && c > from) end = Math.min(end, c);
+  }
+  return end;
 }
 
 // TENSION行の {...} を抽出してパース。失敗は null(非致命)。
@@ -192,14 +234,41 @@ function parseTension(raw: string): Tension | null {
   }
 }
 
+// RESONANCE行の {...} を抽出・検証。lens が実在NodeIdでない・同一・root欠落は null(非致命)。
+function parseResonance(raw: string): Resonance | null {
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start === -1 || end <= start) return null;
+  try {
+    const obj = JSON.parse(raw.slice(start, end + 1)) as Record<string, unknown>;
+    const a = pairOf(obj.a);
+    const b = pairOf(obj.b);
+    const root = typeof obj.root === "string" ? obj.root.trim() : "";
+    if (a === null || b === null || root.length === 0) return null;
+    if (a.lens === b.lens) return null; // 同一レンズは組にならない
+    return { a, b, root };
+  } catch {
+    return null;
+  }
+}
+
+function pairOf(v: unknown): { lens: NodeId; claim: string } | null {
+  if (v === null || typeof v !== "object") return null;
+  const o = v as Record<string, unknown>;
+  if (!isNodeId(o.lens)) return null;
+  const claim = typeof o.claim === "string" ? o.claim.trim() : "";
+  if (claim.length === 0) return null;
+  return { lens: o.lens, claim: claim.slice(0, CLAIM_MAX_LEN) };
+}
+
 // ---------------------------------------------------------------------------
-// ストリーミング: 本文だけを逐次 emit し、TENSION/SUMMARY 以降は流さない。
+// ストリーミング: 本文だけを逐次 emit し、RESONANCE/TENSION/SUMMARY 以降は流さない。
 // マーカーがチャンク分割をまたいでも漏れないよう末尾を保持する。
 // ---------------------------------------------------------------------------
 export class DepthStreamCutter {
-  static readonly MARKERS = [TENSION_MARKER, SUMMARY_MARKER];
+  static readonly MARKERS = [RESONANCE_MARKER, TENSION_MARKER, SUMMARY_MARKER];
   private static readonly HOLD =
-    Math.max(TENSION_MARKER.length, SUMMARY_MARKER.length) - 1;
+    Math.max(...DepthStreamCutter.MARKERS.map((m) => m.length)) - 1;
 
   private full = "";
   private emitted = 0;

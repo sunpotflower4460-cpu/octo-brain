@@ -57,6 +57,11 @@ export function nodeDef(id: NodeId): Lens {
 
 export const ALL_LENS_IDS: NodeId[] = NODE_DEFS.map((d) => d.id);
 
+// 文字列が実在の NodeId(8レンズ)か判定する。resonance の lens 検証などに使う。
+export function isNodeId(s: unknown): s is NodeId {
+  return typeof s === "string" && s in NODE_BY_ID;
+}
+
 // 4つの対角軸 (§3.2)。label は TENSION / meta に出る軸ラベル。
 export interface AxisDef {
   id: AxisId;
