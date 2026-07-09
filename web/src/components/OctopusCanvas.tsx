@@ -8,12 +8,15 @@ import type { AppState } from "../types";
 interface OctopusCanvasProps {
   appState: AppState;
   deepenArms?: number[] | null;
+  resonanceArms?: number[] | null;
 }
 
-const OctopusCanvas = memo(({ appState, deepenArms = null }: OctopusCanvasProps) => {
+const OctopusCanvas = memo(
+  ({ appState, deepenArms = null, resonanceArms = null }: OctopusCanvasProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const appStateRef = useRef<AppState>(appState);
   const deepenArmsRef = useRef<number[] | null>(deepenArms);
+  const resonanceArmsRef = useRef<number[] | null>(resonanceArms);
 
   useEffect(() => {
     appStateRef.current = appState;
@@ -22,6 +25,10 @@ const OctopusCanvas = memo(({ appState, deepenArms = null }: OctopusCanvasProps)
   useEffect(() => {
     deepenArmsRef.current = deepenArms;
   }, [deepenArms]);
+
+  useEffect(() => {
+    resonanceArmsRef.current = resonanceArms;
+  }, [resonanceArms]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -41,6 +48,8 @@ const OctopusCanvas = memo(({ appState, deepenArms = null }: OctopusCanvasProps)
       const state = appStateRef.current;
       // 深化中に光らせる対角2腕(null のときは通常描画)
       const deepen = deepenArmsRef.current;
+      // 共鳴中に呼応させる2腕(null のときは通常描画)
+      const resonance = resonanceArmsRef.current;
       const width = canvas.width;
       const height = canvas.height;
       const time = Date.now() / 1000;
@@ -150,7 +159,29 @@ const OctopusCanvas = memo(({ appState, deepenArms = null }: OctopusCanvasProps)
 
           let strokeColor = `rgba(${30 * depthFactor}, ${50 * depthFactor}, ${80 * depthFactor}, 0.9)`;
 
-          if (deepen) {
+          if (resonance) {
+            // 共鳴中: 選ばれた2腕が「呼応」する。位相を揃えつつ光が2本の間を往復
+            // (交互に強まる)。色はシアン〜白系(深化の紫と差別化)。
+            const ri = resonance.indexOf(tData.id);
+            if (ri !== -1) {
+              const phase = ri === 1 ? Math.PI : 0; // 2本を逆位相にして往復に見せる
+              const back = 0.5 + 0.5 * Math.sin(time * 3 + phase); // 0..1 交互
+              // 波は同期(tData.id を使わず共通位相)して「呼応」に見せる
+              const sync = Math.sin(p1.progress * 16 - time * 5);
+              if (sync > 0.2) {
+                const r = Math.round(150 + 105 * back);
+                strokeColor = `rgba(${r}, 240, 255, ${(0.45 + 0.55 * back) * depthFactor})`;
+                ctx.shadowBlur = (12 + 22 * back) * depthFactor;
+                ctx.shadowColor = "#a5f3fc";
+              } else {
+                strokeColor = `rgba(90, 180, 210, ${0.5 * depthFactor})`;
+                ctx.shadowBlur = 0;
+              }
+            } else {
+              strokeColor = `rgba(${18 * depthFactor}, ${28 * depthFactor}, ${40 * depthFactor}, 0.5)`;
+              ctx.shadowBlur = 0;
+            }
+          } else if (deepen) {
             // 深化中: 対角2腕だけが強く脈打ち、他は暗転する
             if (deepen.includes(tData.id)) {
               const pulse = Math.sin(p1.progress * 22 + time * 16);
@@ -224,7 +255,18 @@ const OctopusCanvas = memo(({ appState, deepenArms = null }: OctopusCanvasProps)
         ctx.arc(endP.x, endP.y, subRadius, 0, Math.PI * 2);
 
         const deepHi = deepen ? deepen.includes(tData.id) : false;
-        if (deepen) {
+        const resoHi = resonance ? resonance.includes(tData.id) : false;
+        if (resonance) {
+          // 共鳴中: 呼応する2腕の吸盤先端だけ点灯(シアン〜白)、他は消灯
+          if (resoHi) {
+            ctx.fillStyle = "#67e8f9";
+            ctx.shadowBlur = 28 * endP.scale;
+            ctx.shadowColor = "#a5f3fc";
+          } else {
+            ctx.fillStyle = "#0f172a";
+            ctx.shadowBlur = 0;
+          }
+        } else if (deepen) {
           // 深化中: 光る2腕の吸盤先端だけ点灯、他は消灯
           if (deepHi) {
             ctx.fillStyle = "#e879f9";
@@ -243,13 +285,17 @@ const OctopusCanvas = memo(({ appState, deepenArms = null }: OctopusCanvasProps)
           ctx.shadowBlur = 0;
         }
         ctx.fill();
-        ctx.strokeStyle = deepen
-          ? deepHi
-            ? "#fdf4ff"
+        ctx.strokeStyle = resonance
+          ? resoHi
+            ? "#ecfeff"
             : "#334155"
-          : state === "processing_subs"
-            ? "#ffffff"
-            : "#38bdf8";
+          : deepen
+            ? deepHi
+              ? "#fdf4ff"
+              : "#334155"
+            : state === "processing_subs"
+              ? "#ffffff"
+              : "#38bdf8";
         ctx.lineWidth = 2 * endP.scale;
         ctx.stroke();
         ctx.shadowBlur = 0;

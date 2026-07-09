@@ -27,12 +27,24 @@ export interface Tension {
   reason: string;
 }
 
+// 共鳴 (P1.6): 軸をまたいで響き合う2意見の組
+export interface ResonancePair {
+  lens: string;
+  claim: string;
+}
+export interface Resonance {
+  a: ResonancePair;
+  b: ResonancePair;
+  root: string;
+}
+
 export interface AnalyzeMeta {
   plan: Plan;
   domain: string;
   quorum: string;
   fallback: boolean;
   tension: Tension | null;
+  resonance: Resonance | null;
   verified: "pass" | "modified";
   totalCost: number;
   ms: number;
@@ -66,4 +78,23 @@ export interface DeepenRequestBody {
 export interface DeepenResponse {
   answer: string;
   meta: { axis: string; calls: number; totalCost: number; ms: number };
+}
+
+// 共鳴/掛け算 (P1.6 §4)
+export interface ResonateRequestBody {
+  input: string;
+  summary?: string;
+  resonance: { a: ResonancePair; b: ResonancePair };
+  priorAnswer: string;
+  clientId: string;
+}
+
+export interface ResonateResponse {
+  answer: string;
+  meta: {
+    pair: { a: ResonancePair; b: ResonancePair };
+    calls: number;
+    totalCost: number;
+    ms: number;
+  };
 }

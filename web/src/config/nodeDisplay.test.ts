@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { armsForAxis, displayFor } from "./nodeDisplay";
+import { armsForAxis, armsForLenses, displayFor } from "./nodeDisplay";
 
 describe("armsForAxis (深化で光る対角2腕)", () => {
   it("軸ラベルから対角2腕の腕番号を返す(index が4離れる)", () => {
@@ -16,6 +16,16 @@ describe("armsForAxis (深化で光る対角2腕)", () => {
   it("未知の軸・空文字は空配列", () => {
     expect(armsForAxis("謎の軸")).toEqual([]);
     expect(armsForAxis("")).toEqual([]);
+  });
+});
+
+describe("armsForLenses (共鳴で光る2腕)", () => {
+  it("レンズID配列→腕番号配列(深化と同じ index マッピング)", () => {
+    expect(armsForLenses(["reason", "values"])).toEqual([0, 7]);
+    expect(armsForLenses(["emotion", "step"])).toEqual([1, 6]);
+  });
+  it("実在しないIDは除外", () => {
+    expect(armsForLenses(["risk", "bogus"])).toEqual([2]);
   });
 });
 

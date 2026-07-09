@@ -41,7 +41,7 @@ export function displayFor(id: string): NodeDisplay {
   );
 }
 
-// 軸ラベル(例: "心の軸")→ 対角2腕の腕番号(canvasのハイライト用)。
+// 軸ラベル(例: "心の軸")→ 対角2腕の腕番号(深化グロー用)。
 // 未知の軸は空配列。
 export function armsForAxis(axisLabel: string): number[] {
   const norm = axisLabel.trim();
@@ -49,4 +49,12 @@ export function armsForAxis(axisLabel: string): number[] {
   return LENS_ORDER.map((id) => NODE_DISPLAY[id]).filter(
     (d) => d.axisLabel === norm || norm.includes(d.axisLabel),
   ).map((d) => d.index);
+}
+
+// レンズID配列 → 腕番号配列(共鳴グロー用)。深化と同じ index マッピングを流用。
+// 実在しないIDは除外する。
+export function armsForLenses(ids: string[]): number[] {
+  return ids
+    .map((id) => NODE_DISPLAY[id]?.index)
+    .filter((i): i is number => typeof i === "number" && i >= 0);
 }
