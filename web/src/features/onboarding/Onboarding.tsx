@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import CoreCanvas, { type CoreLens, type CoreViewModel } from "../cognition/CoreCanvas";
 import { LENS_HUE } from "../cognition/coreView";
 import { LENS_ORDER } from "../../config/nodeDisplay";
+import { useFocusTrap } from "../../hooks/useFocusTrap";
 import type { UiPhase } from "../../lib/cognition";
 
 // 初回オンボーディング3場面 (P2.7 §5.6)。Living Core が実際に反応するインタラクティブ導入。
@@ -55,10 +56,19 @@ export default function Onboarding({
   const [i, setI] = useState(0);
   const scene = SCENES[i];
   const last = i === SCENES.length - 1;
+  const panelRef = useFocusTrap<HTMLDivElement>();
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onDone();
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onDone]);
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-abyss)]/95 backdrop-blur-sm p-6"
+      ref={panelRef}
+      tabIndex={-1}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-abyss)]/95 backdrop-blur-sm p-6 outline-none"
       role="dialog"
       aria-modal="true"
       aria-label="OctoBrain のしくみ"

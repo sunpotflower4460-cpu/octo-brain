@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Plus, Pencil, Trash2, Check, X } from "lucide-react";
+import { useFocusTrap } from "../../hooks/useFocusTrap";
 import type { ConversationMeta } from "../../lib/storage/db";
 
 // 会話一覧 Drawer (P2.7 §5.7)。新規/選択/名前変更/削除(確認)。desktop=左Drawer, mobile=Sheet。
@@ -25,12 +26,11 @@ export default function ConversationList({
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
+  const panelRef = useFocusTrap<HTMLDivElement>();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     document.addEventListener("keydown", onKey);
-    panelRef.current?.focus();
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
@@ -75,7 +75,7 @@ export default function ConversationList({
                         }
                         if (e.key === "Escape") setEditing(null);
                       }}
-                      className="flex-1 bg-[var(--surface-1)] border border-[var(--line-strong)] rounded px-2 py-1.5 text-sm text-[var(--text-primary)] focus:outline-none"
+                      className="flex-1 bg-[var(--surface-1)] border border-[var(--line-strong)] rounded px-2 py-1.5 text-sm text-[var(--text-primary)]"
                       aria-label="会話名"
                     />
                     <IconBtn label="決定" onClick={() => { onRename(m.id, draft.trim() || m.title); setEditing(null); }}>

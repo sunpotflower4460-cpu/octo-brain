@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { X } from "lucide-react";
+import { useFocusTrap } from "../../hooks/useFocusTrap";
 import type {
   CoreSetting,
   DetailSetting,
@@ -57,6 +58,8 @@ export default function SettingsPanel({
   onDeleteData: () => void;
   onClose: () => void;
 }) {
+  const panelRef = useFocusTrap<HTMLDivElement>();
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     document.addEventListener("keydown", onKey);
@@ -66,7 +69,9 @@ export default function SettingsPanel({
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-6" role="dialog" aria-modal="true" aria-label="設定">
       <div
-        className="w-full sm:max-w-[420px] bg-[var(--bg-depth)] border border-[var(--line-soft)] sm:rounded-[var(--radius)] rounded-t-[var(--radius)] p-4"
+        ref={panelRef}
+        tabIndex={-1}
+        className="w-full sm:max-w-[420px] bg-[var(--bg-depth)] border border-[var(--line-soft)] sm:rounded-[var(--radius)] rounded-t-[var(--radius)] p-4 outline-none"
         style={{ paddingBottom: "calc(16px + var(--safe-bottom))" }}
       >
         <div className="flex items-center mb-2">
