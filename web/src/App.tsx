@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowDown, Menu, Plus, Settings as SettingsIcon, WifiOff } from "lucide-react";
 import { analyzeStream, deepen, resonate } from "./lib/api";
 import { LENS_ORDER, armsForAxis, displayFor } from "./config/nodeDisplay";
 import {
@@ -15,10 +15,29 @@ import {
 import { presentPhase } from "./lib/phasePresentation";
 import { useReducedMotion } from "./hooks/useReducedMotion";
 import { useAutoScroll } from "./hooks/useAutoScroll";
+import { useOnlineStatus } from "./hooks/useOnlineStatus";
+import {
+  createStorage,
+  titleFromInput,
+  type ConversationMeta,
+  type StorageAdapter,
+  type StoredConversation,
+} from "./lib/storage/db";
+import {
+  DEFAULT_SETTINGS,
+  isOnboarded,
+  loadSettings,
+  saveSettings,
+  setOnboarded,
+  type Settings,
+} from "./lib/settings";
 import LivingCore from "./features/cognition/LivingCore";
 import Hero from "./features/chat/Hero";
 import Conversation from "./features/chat/Conversation";
 import Composer from "./features/chat/Composer";
+import ConversationList from "./features/conversations/ConversationList";
+import Onboarding from "./features/onboarding/Onboarding";
+import SettingsPanel from "./features/settings/SettingsPanel";
 import StatusAnnouncer from "./components/StatusAnnouncer";
 import type { ChatMessage } from "./features/chat/message";
 import type { NodeView, Plan, ResonancePair, SSEPhase } from "./types";
@@ -29,6 +48,7 @@ function uuid(): string {
 }
 
 const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+const wallNow = () => Date.now();
 
 export default function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -42,7 +62,17 @@ export default function App() {
     ids: string[];
   } | null>(null);
 
-  const reducedMotion = useReducedMotion();
+  // ---- Stage ④: 永続化 / 会話 / 設定 / オンボーディング / オフライン ----
+  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  const [convMetas, setConvMetas] = useState<ConversationMeta[]>([]);
+  const [currentConvId, setCurrentConvId] = useState<string | null>(null);
+  const [storageAvailable, setStorageAvailable] = useState(true);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const online = useOnlineStatus();
+
+  const reducedMotion = useReducedMotion(settings.motion);
   const { scrollRef, sentinelRef, showJump, scrollToBottom, followIfAtBottom } =
     useAutoScroll(reducedMotion);
 
@@ -51,6 +81,25 @@ export default function App() {
   const abortRef = useRef<AbortController | null>(null);
   const abortedByUserRef = useRef(false);
 
+  // 同期アクセス用ミラー(永続化・会話切替で使う)
+  const storageRef = useRef<StorageAdapter | null>(null);
+  const messagesRef = useRef<ChatMessage[]>(messages);
+  const inputRef = useRef(input);
+  const currentConvIdRef = useRef<string | null>(currentConvId);
+  const convCreatedAtRef = useRef(0);
+  const convTitleRef = useRef("");
+  const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+  useEffect(() => {
+    inputRef.current = input;
+  }, [input]);
+  useEffect(() => {
+    currentConvIdRef.current = currentConvId;
+  }, [currentConvId]);
+
   const patch = (id: string, p: Partial<ChatMessage>) =>
     setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, ...p } : m)));
 
@@ -58,6 +107,181 @@ export default function App() {
     setMessages((prev) =>
       prev.map((m) => (m.id === id && m.trace ? { ...m, trace: fn(m.trace) } : m)),
     );
+
+  // ---- 永続化ヘルパー ----
+  const refreshMetas = useCallback(async () => {
+    const s = storageRef.current;
+    if (!s) return;
+    setConvMetas(await s.list());
+  }, []);
+
+  const buildStored = useCallback((): StoredConversation | null => {
+    const id = currentConvIdRef.current;
+    if (!id) return null;
+    return {
+      id,
+      title: convTitleRef.current || "新しい会話",
+      createdAt: convCreatedAtRef.current || wallNow(),
+      updatedAt: wallNow(),
+      messages: messagesRef.current,
+      summary: summaryRef.current,
+      draft: inputRef.current,
+    };
+  }, []);
+
+  const persistNow = useCallback(async () => {
+    const s = storageRef.current;
+    const conv = buildStored();
+    if (!s || !conv) return;
+    await s.save(conv);
+    // メタ一覧を楽観更新(並べ替えのため)
+    setConvMetas((prev) => {
+      const meta = { id: conv.id, title: conv.title, updatedAt: conv.updatedAt };
+      const rest = prev.filter((m) => m.id !== conv.id);
+      return [meta, ...rest].sort((a, b) => b.updatedAt - a.updatedAt);
+    });
+  }, [buildStored]);
+
+  const schedulePersist = useCallback(() => {
+    if (!currentConvIdRef.current) return;
+    if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+    persistTimerRef.current = setTimeout(() => {
+      void persistNow();
+    }, 500);
+  }, [persistNow]);
+
+  const flushPersist = useCallback(async () => {
+    if (persistTimerRef.current) {
+      clearTimeout(persistTimerRef.current);
+      persistTimerRef.current = null;
+    }
+    await persistNow();
+  }, [persistNow]);
+
+  // ---- マウント: storage/設定/オンボーディングの初期化 ----
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setSettings(loadSettings());
+      const s = await createStorage();
+      if (cancelled) return;
+      storageRef.current = s;
+      setStorageAvailable(s.available);
+      const metas = await s.list();
+      if (cancelled) return;
+      setConvMetas(metas);
+      // 直近の会話を復元
+      if (metas.length > 0) {
+        const conv = await s.get(metas[0].id);
+        if (!cancelled && conv) {
+          setMessages(conv.messages);
+          summaryRef.current = conv.summary;
+          convCreatedAtRef.current = conv.createdAt;
+          convTitleRef.current = conv.title;
+          setCurrentConvId(conv.id);
+          if (conv.draft) setInput(conv.draft);
+        }
+      }
+      if (!isOnboarded()) setShowOnboarding(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // 会話内容(回答完了・深化・共鳴結果)と draft を反応的に保存する。
+  // 命令的な保存だと React の state 反映前に古い messagesRef を読み、完了trace が
+  // 保存されず再読込で「停止」に化ける。effect にすることで最新描画後に保存できる。
+  // ストリーム中は毎フレーム messages が変わるが debounce が末尾(=done)に集約する。
+  useEffect(() => {
+    schedulePersist();
+  }, [messages, input, schedulePersist]);
+
+  // ---- 会話ライフサイクル ----
+  const ensureConversation = (firstInput: string) => {
+    if (currentConvIdRef.current) return;
+    const id = uuid();
+    currentConvIdRef.current = id;
+    convCreatedAtRef.current = wallNow();
+    convTitleRef.current = titleFromInput(firstInput);
+    setCurrentConvId(id);
+  };
+
+  const newConversation = async () => {
+    await flushPersist();
+    setMessages([]);
+    setInput("");
+    summaryRef.current = "";
+    convCreatedAtRef.current = 0;
+    convTitleRef.current = "";
+    currentConvIdRef.current = null;
+    setCurrentConvId(null);
+    setDrawerOpen(false);
+  };
+
+  const selectConversation = async (id: string) => {
+    if (id === currentConvIdRef.current) {
+      setDrawerOpen(false);
+      return;
+    }
+    await flushPersist();
+    const s = storageRef.current;
+    if (!s) return;
+    const conv = await s.get(id);
+    if (!conv) return;
+    setMessages(conv.messages);
+    summaryRef.current = conv.summary;
+    convCreatedAtRef.current = conv.createdAt;
+    convTitleRef.current = conv.title;
+    currentConvIdRef.current = conv.id;
+    setCurrentConvId(conv.id);
+    setInput(conv.draft ?? "");
+    setDrawerOpen(false);
+  };
+
+  const renameConversation = async (id: string, title: string) => {
+    const s = storageRef.current;
+    if (!s) return;
+    if (id === currentConvIdRef.current) {
+      convTitleRef.current = title;
+      await persistNow();
+      return;
+    }
+    const conv = await s.get(id);
+    if (!conv) return;
+    await s.save({ ...conv, title, updatedAt: wallNow() });
+    await refreshMetas();
+  };
+
+  const removeConversation = async (id: string) => {
+    const s = storageRef.current;
+    if (!s) return;
+    await s.remove(id);
+    if (id === currentConvIdRef.current) {
+      setMessages([]);
+      setInput("");
+      summaryRef.current = "";
+      convCreatedAtRef.current = 0;
+      convTitleRef.current = "";
+      currentConvIdRef.current = null;
+      setCurrentConvId(null);
+    }
+    await refreshMetas();
+  };
+
+  const deleteAllData = async () => {
+    const s = storageRef.current;
+    if (s) await s.clear();
+    setConvMetas([]);
+    setMessages([]);
+    setInput("");
+    summaryRef.current = "";
+    convCreatedAtRef.current = 0;
+    convTitleRef.current = "";
+    currentConvIdRef.current = null;
+    setCurrentConvId(null);
+    setSettingsOpen(false);
+  };
 
   // ---- 送信 ----
   const runAnalyze = async (text: string) => {
@@ -146,6 +370,8 @@ export default function App() {
   const handleSubmit = () => {
     const text = input.trim();
     if (!text || busy) return;
+    if (!online) return; // オフライン時は送信しない(バナーで告知)
+    ensureConversation(text);
     setInput("");
     void runAnalyze(text);
   };
@@ -220,6 +446,17 @@ export default function App() {
     }
   };
 
+  // ---- 設定 ----
+  const updateSettings = (s: Settings) => {
+    setSettings(s);
+    saveSettings(s);
+  };
+
+  const finishOnboarding = () => {
+    setOnboarded(true);
+    setShowOnboarding(false);
+  };
+
   // ---- Living Core が映す trace ----
   const streamingMsg = messages.find((m) => m.streaming);
   const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
@@ -253,17 +490,52 @@ export default function App() {
   }, [messages, followIfAtBottom]);
 
   const empty = messages.length === 0;
+  const showMobileCore = busy || !!coreAction || (settings.core === "always" && !empty);
 
   return (
     <div className="h-[100dvh] flex flex-col bg-[var(--bg-abyss)] text-[var(--text-primary)] overflow-hidden">
       <header
-        className="flex-shrink-0 flex items-center justify-center border-b border-[var(--line-soft)] px-4"
+        className="flex-shrink-0 flex items-center gap-1 border-b border-[var(--line-soft)] px-2 sm:px-4"
         style={{ paddingTop: "calc(var(--safe-top) + 10px)", paddingBottom: 10 }}
       >
-        <span className="text-sm font-semibold tracking-wide text-[var(--text-secondary)]">
+        <button
+          type="button"
+          aria-label="会話一覧"
+          onClick={() => setDrawerOpen(true)}
+          className="w-9 h-9 flex items-center justify-center rounded text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
+        <span className="flex-1 text-center text-sm font-semibold tracking-wide text-[var(--text-secondary)]">
           OctoBrain
         </span>
+        <button
+          type="button"
+          aria-label="新しい会話"
+          onClick={() => void newConversation()}
+          className="w-9 h-9 flex items-center justify-center rounded text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+        >
+          <Plus className="w-5 h-5" />
+        </button>
+        <button
+          type="button"
+          aria-label="設定"
+          onClick={() => setSettingsOpen(true)}
+          className="w-9 h-9 flex items-center justify-center rounded text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+        >
+          <SettingsIcon className="w-5 h-5" />
+        </button>
       </header>
+
+      {!online && (
+        <div
+          className="flex-shrink-0 flex items-center justify-center gap-2 bg-[var(--gold)]/15 text-[var(--gold)] text-[12px] py-1.5 px-4"
+          role="status"
+        >
+          <WifiOff className="w-3.5 h-3.5" aria-hidden />
+          オフラインです。接続が戻ると送信できます。
+        </div>
+      )}
 
       <main className="flex-1 min-h-0 flex">
         {/* 左: Living Core (desktop) */}
@@ -280,8 +552,8 @@ export default function App() {
 
         {/* 右: 会話 */}
         <div className="flex-1 min-w-0 flex flex-col relative">
-          {/* モバイル: 処理中のみ Compact Core */}
-          {(busy || coreAction) && (
+          {/* モバイル: Compact Core */}
+          {showMobileCore && (
             <div className="lg:hidden flex-shrink-0 border-b border-[var(--line-soft)] px-4 py-2">
               <LivingCore
                 trace={coreTrace}
@@ -299,6 +571,7 @@ export default function App() {
               ) : (
                 <Conversation
                   messages={messages}
+                  detailOpen={settings.detail === "detailed"}
                   handlers={{
                     busy,
                     deepeningId,
@@ -336,6 +609,36 @@ export default function App() {
           />
         </div>
       </main>
+
+      {drawerOpen && (
+        <ConversationList
+          metas={convMetas}
+          currentId={currentConvId}
+          storageAvailable={storageAvailable}
+          onSelect={(id) => void selectConversation(id)}
+          onNew={() => void newConversation()}
+          onRename={(id, title) => void renameConversation(id, title)}
+          onDelete={(id) => void removeConversation(id)}
+          onClose={() => setDrawerOpen(false)}
+        />
+      )}
+
+      {settingsOpen && (
+        <SettingsPanel
+          settings={settings}
+          onChange={updateSettings}
+          onReshowOnboarding={() => {
+            setSettingsOpen(false);
+            setShowOnboarding(true);
+          }}
+          onDeleteData={() => void deleteAllData()}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
+
+      {showOnboarding && (
+        <Onboarding reducedMotion={reducedMotion} onDone={finishOnboarding} />
+      )}
 
       <StatusAnnouncer message={statusMsg} />
     </div>

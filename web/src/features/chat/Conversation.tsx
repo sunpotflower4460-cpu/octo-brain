@@ -19,9 +19,11 @@ export interface ConversationHandlers {
 export default function Conversation({
   messages,
   handlers,
+  detailOpen = false,
 }: {
   messages: ChatMessage[];
   handlers: ConversationHandlers;
+  detailOpen?: boolean;
 }) {
   return (
     <div className="space-y-7">
@@ -41,6 +43,7 @@ export default function Conversation({
               <ProcessDock
                 trace={msg.trace}
                 onStop={msg.streaming ? handlers.onStop : undefined}
+                defaultOpen={detailOpen}
               />
             )}
 

@@ -10,11 +10,13 @@ import { MAIN_STEPS, presentPhase } from "../../lib/phasePresentation";
 export default function ProcessDock({
   trace,
   onStop,
+  defaultOpen = false,
 }: {
   trace: ThoughtTrace;
   onStop?: () => void;
+  defaultOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
 
   const finished =
     trace.phase === "done" || trace.phase === "cancelled" || trace.phase === "error";
