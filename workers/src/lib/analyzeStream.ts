@@ -37,9 +37,10 @@ export async function runAnalyzeStream(
   });
 
   // ② プラン別レンズ並列(完了順に node イベント)
-  emit("phase", { phase: "nodes" satisfies SSEPhase });
+  // nodes フェーズで起動レンズIDを同送し、UIが真に起動した腕だけを working 表示できるようにする。
   const lensIds = planLenses(req.plan, domain);
   const required = planQuorum(req.plan);
+  emit("phase", { phase: "nodes" satisfies SSEPhase, nodeIds: lensIds });
   const run = await runNodes(lensIds, required, req.input, req.summary, {
     env: deps.env,
     collector,

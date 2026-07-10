@@ -17,7 +17,7 @@ export const API_BASE: string =
   import.meta.env.VITE_API_BASE ?? "http://localhost:8787";
 
 export interface StreamHandlers {
-  onPhase?: (phase: SSEPhase) => void;
+  onPhase?: (phase: SSEPhase, nodeIds?: string[]) => void;
   onNode?: (node: NodeView) => void;
   onToken?: (t: string) => void;
   onDone?: (payload: DonePayload) => void;
@@ -106,9 +106,11 @@ function dispatch(
 ): void {
   const data = safeParse(evt.data);
   switch (evt.event) {
-    case "phase":
-      handlers.onPhase?.((data as { phase: SSEPhase }).phase);
+    case "phase": {
+      const d = data as { phase: SSEPhase; nodeIds?: string[] };
+      handlers.onPhase?.(d.phase, d.nodeIds);
       break;
+    }
     case "node":
       handlers.onNode?.(data as NodeView);
       break;
