@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="OctoBrain">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="38%" r="75%">
+      <stop offset="0%" stop-color="#0a1428" />
+      <stop offset="100%" stop-color="#050711" />
+    </radialGradient>
+    <radialGradient id="core" cx="50%" cy="42%" r="60%">
+      <stop offset="0%" stop-color="#e0e7ff" />
+      <stop offset="45%" stop-color="#a78bfa" />
+      <stop offset="100%" stop-color="#5b3fb0" />
+    </radialGradient>
+    <linearGradient id="arm" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#a78bfa" />
+      <stop offset="100%" stop-color="#67e8f9" />
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="url(#bg)" />
+
+  <!-- 4軸の細い連結線 -->
+  <g stroke="rgba(166,193,235,0.14)" stroke-width="2">
+    <line x1="256" y1="86" x2="256" y2="426" />
+    <line x1="86" y1="256" x2="426" y2="256" />
+    <line x1="136" y1="136" x2="376" y2="376" />
+    <line x1="376" y1="136" x2="136" y2="376" />
+  </g>
+
+  <!-- 8腕(=8レンズ)。中央から放射 -->
+  <g stroke="url(#arm)" stroke-width="13" stroke-linecap="round" opacity="0.92">
+    <line x1="256" y1="256" x2="256" y2="96" />
+    <line x1="256" y1="256" x2="369" y2="143" />
+    <line x1="256" y1="256" x2="416" y2="256" />
+    <line x1="256" y1="256" x2="369" y2="369" />
+    <line x1="256" y1="256" x2="256" y2="416" />
+    <line x1="256" y1="256" x2="143" y2="369" />
+    <line x1="256" y1="256" x2="96" y2="256" />
+    <line x1="256" y1="256" x2="143" y2="143" />
+  </g>
+
+  <!-- 腕先(レンズ) -->
+  <g fill="#67e8f9">
+    <circle cx="256" cy="96" r="15" />
+    <circle cx="369" cy="143" r="15" />
+    <circle cx="416" cy="256" r="15" />
+    <circle cx="369" cy="369" r="15" />
+    <circle cx="256" cy="416" r="15" />
+    <circle cx="143" cy="369" r="15" />
+    <circle cx="96" cy="256" r="15" />
+    <circle cx="143" cy="143" r="15" />
+  </g>
+
+  <!-- 中央脳(Core) -->
+  <circle cx="256" cy="256" r="70" fill="url(#core)" />
+  <circle cx="256" cy="256" r="70" fill="none" stroke="rgba(244,247,255,0.55)" stroke-width="3" />
+</svg>

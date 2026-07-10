@@ -31,6 +31,7 @@ import {
   setOnboarded,
   type Settings,
 } from "./lib/settings";
+import { initNativeShell } from "./lib/native/shell";
 import LivingCore from "./features/cognition/LivingCore";
 import Hero from "./features/chat/Hero";
 import Conversation from "./features/chat/Conversation";
@@ -161,8 +162,10 @@ export default function App() {
   // ---- マウント: storage/設定/オンボーディングの初期化 ----
   useEffect(() => {
     let cancelled = false;
+    void initNativeShell(); // ネイティブのみ StatusBar/Keyboard/Splash を整える(web は no-op)
     (async () => {
-      setSettings(loadSettings());
+      const loaded = await loadSettings();
+      if (!cancelled) setSettings(loaded);
       const s = await createStorage();
       if (cancelled) return;
       storageRef.current = s;
@@ -182,7 +185,7 @@ export default function App() {
           if (conv.draft) setInput(conv.draft);
         }
       }
-      if (!isOnboarded()) setShowOnboarding(true);
+      if (!cancelled && !(await isOnboarded())) setShowOnboarding(true);
     })();
     return () => {
       cancelled = true;
@@ -449,11 +452,11 @@ export default function App() {
   // ---- 設定 ----
   const updateSettings = (s: Settings) => {
     setSettings(s);
-    saveSettings(s);
+    void saveSettings(s);
   };
 
   const finishOnboarding = () => {
-    setOnboarded(true);
+    void setOnboarded(true);
     setShowOnboarding(false);
   };
 

@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2732" height="2732" viewBox="0 0 2732 2732" role="img" aria-label="OctoBrain">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="46%" r="60%">
+      <stop offset="0%" stop-color="#0a1428" />
+      <stop offset="100%" stop-color="#050711" />
+    </radialGradient>
+    <radialGradient id="core" cx="50%" cy="42%" r="60%">
+      <stop offset="0%" stop-color="#e0e7ff" />
+      <stop offset="45%" stop-color="#a78bfa" />
+      <stop offset="100%" stop-color="#5b3fb0" />
+    </radialGradient>
+    <linearGradient id="arm" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#a78bfa" />
+      <stop offset="100%" stop-color="#67e8f9" />
+    </linearGradient>
+  </defs>
+
+  <rect width="2732" height="2732" fill="url(#bg)" />
+
+  <!-- 中央に Living Core を配置(1366,1366 中心・半径スケール) -->
+  <g transform="translate(1366 1366)">
+    <g stroke="url(#arm)" stroke-width="20" stroke-linecap="round" opacity="0.9">
+      <line x1="0" y1="0" x2="0" y2="-300" />
+      <line x1="0" y1="0" x2="212" y2="-212" />
+      <line x1="0" y1="0" x2="300" y2="0" />
+      <line x1="0" y1="0" x2="212" y2="212" />
+      <line x1="0" y1="0" x2="0" y2="300" />
+      <line x1="0" y1="0" x2="-212" y2="212" />
+      <line x1="0" y1="0" x2="-300" y2="0" />
+      <line x1="0" y1="0" x2="-212" y2="-212" />
+    </g>
+    <g fill="#67e8f9">
+      <circle cx="0" cy="-300" r="22" />
+      <circle cx="212" cy="-212" r="22" />
+      <circle cx="300" cy="0" r="22" />
+      <circle cx="212" cy="212" r="22" />
+      <circle cx="0" cy="300" r="22" />
+      <circle cx="-212" cy="212" r="22" />
+      <circle cx="-300" cy="0" r="22" />
+      <circle cx="-212" cy="-212" r="22" />
+    </g>
+    <circle cx="0" cy="0" r="120" fill="url(#core)" />
+    <circle cx="0" cy="0" r="120" fill="none" stroke="rgba(244,247,255,0.5)" stroke-width="5" />
+  </g>
+
+  <text x="1366" y="1900" text-anchor="middle" font-family="Inter, -apple-system, 'Noto Sans JP', sans-serif" font-size="96" font-weight="700" fill="#f4f7ff">OctoBrain</text>
+</svg>

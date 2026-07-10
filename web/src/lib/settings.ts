@@ -1,4 +1,7 @@
-// 設定 (P2.7 §5.8)。ローカル保存。
+// 設定 (P2.7 §5.8 / P6 で永続化を Preferences ベースの KV へ)。
+// web は localStorage、ネイティブは Capacitor Preferences(kv 抽象が吸収)。
+
+import { kv } from "./native/kv";
 
 export type MotionSetting = "system" | "reduce" | "normal";
 export type CoreSetting = "auto" | "always";
@@ -19,37 +22,27 @@ export const DEFAULT_SETTINGS: Settings = {
 const KEY = "octobrain.settings";
 const ONBOARDED = "octobrain.onboarded";
 
-export function loadSettings(): Settings {
-  try {
-    const s = localStorage.getItem(KEY);
-    if (s) return { ...DEFAULT_SETTINGS, ...(JSON.parse(s) as Partial<Settings>) };
-  } catch {
-    /* ignore */
+export async function loadSettings(): Promise<Settings> {
+  const s = await kv.get(KEY);
+  if (s) {
+    try {
+      return { ...DEFAULT_SETTINGS, ...(JSON.parse(s) as Partial<Settings>) };
+    } catch {
+      /* 壊れた値は既定へ */
+    }
   }
   return DEFAULT_SETTINGS;
 }
 
-export function saveSettings(s: Settings): void {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(s));
-  } catch {
-    /* ignore */
-  }
+export async function saveSettings(s: Settings): Promise<void> {
+  await kv.set(KEY, JSON.stringify(s));
 }
 
-export function isOnboarded(): boolean {
-  try {
-    return localStorage.getItem(ONBOARDED) === "1";
-  } catch {
-    return true; // localStorage 不可なら初回演出を強制しない
-  }
+export async function isOnboarded(): Promise<boolean> {
+  return (await kv.get(ONBOARDED)) === "1";
 }
 
-export function setOnboarded(v: boolean): void {
-  try {
-    if (v) localStorage.setItem(ONBOARDED, "1");
-    else localStorage.removeItem(ONBOARDED);
-  } catch {
-    /* ignore */
-  }
+export async function setOnboarded(v: boolean): Promise<void> {
+  if (v) await kv.set(ONBOARDED, "1");
+  else await kv.remove(ONBOARDED);
 }
