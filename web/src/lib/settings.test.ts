@@ -30,35 +30,35 @@ beforeEach(() => {
 });
 
 describe("settings", () => {
-  it("未保存時は既定値", () => {
-    expect(loadSettings()).toEqual(DEFAULT_SETTINGS);
+  it("未保存時は既定値", async () => {
+    expect(await loadSettings()).toEqual(DEFAULT_SETTINGS);
   });
 
-  it("save→load でラウンドトリップ", () => {
-    saveSettings({ motion: "reduce", core: "always", detail: "detailed" });
-    expect(loadSettings()).toEqual({ motion: "reduce", core: "always", detail: "detailed" });
+  it("save→load でラウンドトリップ", async () => {
+    await saveSettings({ motion: "reduce", core: "always", detail: "detailed" });
+    expect(await loadSettings()).toEqual({ motion: "reduce", core: "always", detail: "detailed" });
   });
 
-  it("部分的な保存値は既定でマージされる", () => {
+  it("部分的な保存値は既定でマージされる", async () => {
     localStorage.setItem("octobrain.settings", JSON.stringify({ motion: "normal" }));
-    expect(loadSettings()).toEqual({ ...DEFAULT_SETTINGS, motion: "normal" });
+    expect(await loadSettings()).toEqual({ ...DEFAULT_SETTINGS, motion: "normal" });
   });
 
-  it("壊れた JSON は既定へフォールバック", () => {
+  it("壊れた JSON は既定へフォールバック", async () => {
     localStorage.setItem("octobrain.settings", "{not json");
-    expect(loadSettings()).toEqual(DEFAULT_SETTINGS);
+    expect(await loadSettings()).toEqual(DEFAULT_SETTINGS);
   });
 });
 
 describe("onboarded flag", () => {
-  it("既定は未完了(=false)", () => {
-    expect(isOnboarded()).toBe(false);
+  it("既定は未完了(=false)", async () => {
+    expect(await isOnboarded()).toBe(false);
   });
 
-  it("set(true)/set(false) を反映", () => {
-    setOnboarded(true);
-    expect(isOnboarded()).toBe(true);
-    setOnboarded(false);
-    expect(isOnboarded()).toBe(false);
+  it("set(true)/set(false) を反映", async () => {
+    await setOnboarded(true);
+    expect(await isOnboarded()).toBe(true);
+    await setOnboarded(false);
+    expect(await isOnboarded()).toBe(false);
   });
 });

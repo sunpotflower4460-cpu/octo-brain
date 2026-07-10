@@ -9,9 +9,9 @@ Claude Code に渡す — これまでと同じ運用を続ける。
 ```
 M1「動く」        P0 骨格 → P1 パイプライン → P2 フロント → P3 ベンチ   ✅
 M1.5「深くなる」  P1.5 八芒星+深化 ✅ → P2拡張 深化UI ✅ → P1.6 共鳴 ✅ → P2.6 共鳴UI ✅
-M1.7「伝わる」    P2.7 世界水準UI/UX再設計(思考が見える生きた知性) 🚧 ← P6のUX項目を前倒し統合
+M1.7「伝わる」    P2.7 世界水準UI/UX再設計(思考が見える生きた知性) ✅ ← P6のUX項目を前倒し統合
 M2「壊れない」    P4 チューニング(実モデル確定+本番ベンチ+胸テスト) → P5 堅牢化
-M3「アプリになる」 P6残(Capacitor固有UX) → P7 Capacitor/iOS
+M3「アプリになる」 P6 Capacitor土台 ✅(web検証分) → P7 Capacitor/iOS(実機ビルド・検証)
 M4「売れる形」    P8 課金(IAP)
 M5「世に出る」    P9 申請準備 → P10 リリース・運用
 ```
@@ -72,20 +72,33 @@ M5「世に出る」    P9 申請準備 → P10 リリース・運用
 
 ## P6 — アプリUX: 道具から製品へ 【重さ: 中〜重】
 
-> 注: 本節のUX項目の多くは **P2.7 で前倒し実装**する(会話永続化・オンボーディング・設定・
-> コピー/共有・空/エラー/オフライン)。P6 に残るのは Capacitor 固有項目(下記の★)。
+> 注: 本節のUX項目の多くは **P2.7 で前倒し実装済み**(会話永続化・オンボーディング・設定・
+> コピー/共有・空/エラー/オフライン)。P6 で残った Capacitor 固有の**土台**も実装した。
 
 **目的**: 毎日開きたくなるアプリの形にする。
 
-- **会話の永続化**(Capacitor Preferences で開始、重くなればSQLite): 会話一覧・タイトル自動生成(compressノード流用で安く)・削除・新規会話(ローリング要約もリセット)
-- **オンボーディング3枚**: 「8本の腕が別々に考え、頭が統合する」世界観を最初に見せる。タコアニメーションを主役に
-- **設定画面**: モード選択(おまかせ=auto / じっくり=complex固定 ← プレミアム布石)、今月の利用回数表示(クォータAPI)
-- 回答のコピー / 共有
-- 空状態・エラー状態・オフライン時のデザイン
-- アプリアイコン & スプラッシュ(タコ。世界観の顔になる)
-- 「8つの視点を見る」の磨き込み: どのノードが統合に強く効いたかの表示は面白いが任意
+- ~~会話の永続化・会話一覧・タイトル自動生成・削除・新規会話~~ → **P2.7 実装済**(IndexedDB)
+- ~~オンボーディング3枚~~ → **P2.7 実装済**(Living Core が反応する導入)
+- ~~設定画面~~ → **P2.7 実装済**(Motion / Core表示 / 処理詳細 / データ削除 / オンボ再表示)。利用回数表示はクォータAPI(P5)後
+- ~~回答のコピー / 共有 / 空・エラー・オフライン~~ → **P2.7 実装済**
+- 「8つの視点を見る」の磨き込み(どのノードが統合に効いたか)は任意 → 後続
 
-**完了の目安**: アプリを閉じて開いても会話が残る / 初見の人がオンボーディングだけで世界観を理解できる
+### P6 で実装した Capacitor 土台 ✅(この環境=Linux/Xcodeなしで web 検証できる範囲)
+
+- Capacitor 6 依存 + `web/capacitor.config.ts`(appId `com.octobrain.app` / webDir `dist` / 深海テーマ色)
+- `web/src/lib/native/`: `platform`(ネイティブ判定・web安全)、`kv`(設定/オンボを **Capacitor Preferences** / web は localStorage で吸収)、`shell`(StatusBar/Keyboard/SplashScreen をネイティブ時のみ初期化、web は no-op・動的import)
+- 設定・オンボーディング永続化を Preferences ベースの非同期 KV へ移行
+- `viewport-fit=cover` + `env(safe-area-inset-*)` で**ネイティブ Safe Area** の前提を用意、`apple-mobile-web-app-*` メタ
+- アプリアイコン&スプラッシュの**元 SVG**(`web/public/icon.svg`・`web/resources/{icon,splash}.svg`)+ PWA `manifest.webmanifest`
+- `web/.gitignore` に `ios/` `android/` を追加(P7 生成物)
+
+### P7 に送る(macOS/Xcode・実機が必要)
+
+- `npx cap add ios` による iOS プロジェクト生成、`@capacitor/assets` での各解像度 PNG 生成
+- 実機での fps・発熱・バッテリー、`devicePixelRatio` 実機調整、キーボード実挙動、ステータスバー実色
+- 本番 `VITE_API_BASE` 向き先、`capacitor://localhost` の ALLOWED_ORIGIN 追加、TestFlight 配布
+
+**完了の目安**: アプリを閉じて開いても会話が残る(✅ P2.7)/ 初見でも世界観が伝わる(✅ P2.7)/ ネイティブ化の土台が揃い P7 が薄い作業になる(✅ P6)
 
 ## P7 — Capacitor化: iOSネイティブ 【重さ: 中】(ねこ電卓等の経験が直接活きる)
 

@@ -2,3 +2,8 @@ node_modules/
 dist/
 *.local
 .env
+
+# Capacitor ネイティブプロジェクト(P7 で生成。実機ビルド成果物は別管理)
+/ios/
+/android/
+.gradle/
