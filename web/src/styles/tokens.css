@@ -1,0 +1,160 @@
+/* Bioluminescent Intelligence / 深海の生体知性 — Design Tokens (P2.7 §11.2) */
+:root {
+  /* 深海の背景 */
+  --bg-abyss: #050711;
+  --bg-depth: #080d19;
+  --surface-1: #0c1322;
+  --surface-2: #111b2e;
+  --surface-3: #17233a;
+
+  --line-soft: rgba(166, 193, 235, 0.12);
+  --line-strong: rgba(166, 193, 235, 0.24);
+
+  --text-primary: #f4f7ff;
+  --text-secondary: #b6c1d8;
+  --text-muted: #8390aa;
+
+  /* 意味を固定した色 */
+  --cyan: #67e8f9; /* 腕・並列観測・共鳴 */
+  --cyan-soft: #a5f3fc;
+  --violet: #a78bfa; /* 中央脳・統合 */
+  --fuchsia: #e879f9; /* 緊張・深化 */
+  --gold: #f6c76e; /* 検証 */
+  --danger: #fb7185; /* 実エラーのみ */
+  --success: #6ee7b7;
+
+  /* レイアウト */
+  --core-col: 340px;
+  --read-max: 760px;
+  --shell-max: 1220px;
+  --radius: 16px;
+  --radius-sm: 10px;
+
+  /* モーション */
+  --t-press: 120ms;
+  --t-panel: 220ms;
+  --t-core: 480ms;
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-top: env(safe-area-inset-top, 0px);
+}
+
+/* Reduced Transparency: ガラス(backdrop-blur)を無効化し不透明寄りに (§11.4/§13.3) */
+@media (prefers-reduced-transparency: reduce) {
+  * {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background:
+    radial-gradient(1200px 800px at 20% -10%, rgba(103, 232, 249, 0.05), transparent 60%),
+    radial-gradient(1000px 700px at 90% 10%, rgba(167, 139, 250, 0.05), transparent 60%),
+    var(--bg-abyss);
+  color: var(--text-primary);
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Hiragino Sans",
+    "Yu Gothic UI", "Noto Sans JP", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* フォーカスリングは消さない (a11y) */
+:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Markdown 本文 */
+.md > :first-child {
+  margin-top: 0;
+}
+.md > :last-child {
+  margin-bottom: 0;
+}
+.md p {
+  margin: 0 0 0.9em;
+  line-height: 1.75;
+}
+.md h1,
+.md h2,
+.md h3 {
+  line-height: 1.4;
+  margin: 1.3em 0 0.5em;
+  font-weight: 700;
+}
+.md h1 {
+  font-size: 1.4em;
+}
+.md h2 {
+  font-size: 1.2em;
+}
+.md h3 {
+  font-size: 1.05em;
+}
+.md ul,
+.md ol {
+  margin: 0 0 0.9em;
+  padding-left: 1.4em;
+}
+.md li {
+  margin: 0.3em 0;
+  line-height: 1.7;
+}
+.md blockquote {
+  margin: 0.9em 0;
+  padding: 0.2em 0 0.2em 1em;
+  border-left: 3px solid var(--line-strong);
+  color: var(--text-secondary);
+}
+.md code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+  background: var(--surface-1);
+  padding: 0.1em 0.35em;
+  border-radius: 6px;
+}
+.md pre {
+  background: var(--surface-1);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  padding: 0.9em 1em;
+  overflow-x: auto;
+  margin: 0 0 0.9em;
+}
+.md pre code {
+  background: none;
+  padding: 0;
+}
+.md a {
+  color: var(--cyan-soft);
+  text-underline-offset: 2px;
+}
+.md table {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: 0 0 0.9em;
+  font-size: 0.95em;
+}
+.md th,
+.md td {
+  border: 1px solid var(--line-soft);
+  padding: 0.4em 0.7em;
+  text-align: left;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    scroll-behavior: auto !important;
+  }
+}
