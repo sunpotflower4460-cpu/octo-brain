@@ -7,6 +7,17 @@ import { runAnalyze } from "./lib/analyze.js";
 import { runAnalyzeStream } from "./lib/analyzeStream.js";
 import { runDeepen, resolveAxis } from "./lib/deepen.js";
 import { runResonate, validateResonancePair } from "./lib/resonate.js";
+import {
+  acquireSlot,
+  releaseSlot,
+  checkQuota,
+  quotaLimit,
+  requestBudgetMs,
+  numEnv,
+  DEFAULT_MIN_INTERVAL_MS,
+  DEFAULT_LOCK_MS,
+} from "./lib/guard.js";
+import type { Context } from "hono";
 import type { ChatMessage, Env, Plan } from "./types.js";
 
 const VERSION = "0.0.0-p1.6";
@@ -86,7 +97,7 @@ type ValidatedBody =
   | { ok: true; value: { input: string; summary: string; plan: Plan; clientId: string } }
   | { ok: false; error: string; extra?: Record<string, unknown> };
 
-function validateAnalyzeBody(body: unknown): ValidatedBody {
+export function validateAnalyzeBody(body: unknown): ValidatedBody {
   const b = (body ?? {}) as Record<string, unknown>;
   const input = typeof b.input === "string" ? b.input : "";
   if (input.length === 0) return { ok: false, error: "input_required" };
@@ -108,6 +119,57 @@ function validateAnalyzeBody(body: unknown): ValidatedBody {
   return { ok: true, value: { input, summary, plan, clientId } };
 }
 
+// ---- P5 堅牢化ガード: 連打防止 + クォータ実ブロック ----
+// 全モデル呼び出しエンドポイントの入口で共通に使う。ブロック時は 429 を返す。
+// release() は処理完了後に必ず呼ぶ(finally)。同時実行ロックを解放する。
+interface GuardResult {
+  blocked: Response | null;
+  release: () => Promise<void>;
+}
+
+async function guardRequest(
+  c: Context<{ Bindings: Env }>,
+  clientId: string,
+): Promise<GuardResult> {
+  const env = c.env;
+  const kv = env.OCTO_KV;
+  const nowMs = Date.now();
+  const noRelease = async (): Promise<void> => {};
+
+  // ① 連打防止(同時実行1本 + 最小間隔)
+  const slot = await acquireSlot(kv, clientId, nowMs, {
+    minIntervalMs: numEnv(env, "MIN_INTERVAL_MS", DEFAULT_MIN_INTERVAL_MS),
+    lockMs: DEFAULT_LOCK_MS,
+  });
+  if (!slot.ok) {
+    const retryAfterSec = Math.max(1, Math.ceil(slot.retryAfterMs / 1000));
+    return {
+      blocked: c.json(
+        { error: slot.error, retryAfterMs: slot.retryAfterMs },
+        429,
+        { "Retry-After": String(retryAfterSec) },
+      ),
+      release: noRelease,
+    };
+  }
+
+  const release = async (): Promise<void> => {
+    await releaseSlot(kv, clientId, Date.now());
+  };
+
+  // ② クォータ実ブロック(上限超過中は深化・共鳴も含めて弾く)
+  const q = await checkQuota(kv, clientId, new Date(nowMs), quotaLimit(env));
+  if (!q.allowed) {
+    await release();
+    return {
+      blocked: c.json({ error: "quota_exceeded", limit: q.limit, used: q.used }, 429),
+      release: noRelease,
+    };
+  }
+
+  return { blocked: null, release };
+}
+
 // メイン分析エンドポイント (§9 P1契約: 一括JSON)。ベンチ(P3)でも使う。
 app.post("/api/analyze", async (c) => {
   let body: unknown;
@@ -119,15 +181,23 @@ app.post("/api/analyze", async (c) => {
   const v = validateAnalyzeBody(body);
   if (!v.ok) return c.json({ error: v.error, ...v.extra }, 400);
 
+  const guard = await guardRequest(c, v.value.clientId);
+  if (guard.blocked) return guard.blocked;
+
+  const signal = AbortSignal.timeout(requestBudgetMs(c.env));
   try {
     const res = await runAnalyze(v.value, {
       env: c.env,
       now: new Date(),
       requestId: crypto.randomUUID(),
+      signal,
     });
     return c.json(res);
   } catch (err) {
-    // パイプライン全体の失敗は握りつぶさず可視化する
+    // 全体予算超過は 504、それ以外のパイプライン失敗は 500(いずれも握りつぶさない)
+    if (signal.aborted) {
+      return c.json({ error: "timeout", budgetMs: requestBudgetMs(c.env) }, 504);
+    }
     return c.json(
       {
         error: "pipeline_error",
@@ -135,6 +205,8 @@ app.post("/api/analyze", async (c) => {
       },
       500,
     );
+  } finally {
+    await guard.release();
   }
 });
 
@@ -149,6 +221,10 @@ app.post("/api/analyze/stream", async (c) => {
   const v = validateAnalyzeBody(body);
   if (!v.ok) return c.json({ error: v.error, ...v.extra }, 400);
 
+  // 連打防止 + クォータは stream 開始前に判定する(429 をそのまま返せる)
+  const guard = await guardRequest(c, v.value.clientId);
+  if (guard.blocked) return guard.blocked;
+
   const encoder = new TextEncoder();
   const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
   const writer = writable.getWriter();
@@ -159,19 +235,25 @@ app.post("/api/analyze/stream", async (c) => {
     );
   };
 
+  const signal = AbortSignal.timeout(requestBudgetMs(c.env));
   const pump = async (): Promise<void> => {
     try {
       await runAnalyzeStream(
         v.value,
-        { env: c.env, now: new Date(), requestId: crypto.randomUUID() },
+        { env: c.env, now: new Date(), requestId: crypto.randomUUID(), signal },
         emit,
       );
     } catch (err) {
       emit("error", {
-        message: err instanceof Error ? err.message : String(err),
+        message: signal.aborted
+          ? "timeout"
+          : err instanceof Error
+            ? err.message
+            : String(err),
       });
     } finally {
       await writer.close();
+      await guard.release();
     }
   };
 
@@ -220,13 +302,20 @@ app.post("/api/deepen", async (c) => {
     return c.json({ error: "unknown_or_missing_tension", axis: axisText }, 400);
   }
 
+  const guard = await guardRequest(c, clientId);
+  if (guard.blocked) return guard.blocked;
+
+  const signal = AbortSignal.timeout(requestBudgetMs(c.env));
   try {
     const res = await runDeepen(
       { input, summary, tension: { axis: axisText }, priorAnswer, clientId },
-      { env: c.env, now: new Date(), requestId: crypto.randomUUID() },
+      { env: c.env, now: new Date(), requestId: crypto.randomUUID(), signal },
     );
     return c.json(res);
   } catch (err) {
+    if (signal.aborted) {
+      return c.json({ error: "timeout", budgetMs: requestBudgetMs(c.env) }, 504);
+    }
     return c.json(
       {
         error: "deepen_error",
@@ -234,6 +323,8 @@ app.post("/api/deepen", async (c) => {
       },
       500,
     );
+  } finally {
+    await guard.release();
   }
 });
 
@@ -267,13 +358,20 @@ app.post("/api/resonate", async (c) => {
   const v = validateResonancePair(b.resonance);
   if (!v.ok) return c.json({ error: v.error }, 400);
 
+  const guard = await guardRequest(c, clientId);
+  if (guard.blocked) return guard.blocked;
+
+  const signal = AbortSignal.timeout(requestBudgetMs(c.env));
   try {
     const res = await runResonate(
       { input, summary, resonance: { a: v.a, b: v.b }, priorAnswer, clientId },
-      { env: c.env, now: new Date(), requestId: crypto.randomUUID() },
+      { env: c.env, now: new Date(), requestId: crypto.randomUUID(), signal },
     );
     return c.json(res);
   } catch (err) {
+    if (signal.aborted) {
+      return c.json({ error: "timeout", budgetMs: requestBudgetMs(c.env) }, 504);
+    }
     return c.json(
       {
         error: "resonate_error",
@@ -281,6 +379,8 @@ app.post("/api/resonate", async (c) => {
       },
       500,
     );
+  } finally {
+    await guard.release();
   }
 });
 

@@ -34,6 +34,7 @@ export async function runAnalyzeStream(
   const domain: Domain = await classifyDomain(req.input, {
     env: deps.env,
     collector,
+    signal: deps.signal,
   });
 
   // ② プラン別レンズ並列(完了順に node イベント)
@@ -45,6 +46,7 @@ export async function runAnalyzeStream(
     env: deps.env,
     collector,
     nodeTimeoutMs: deps.nodeTimeoutMs,
+    signal: deps.signal,
     onNodeComplete: (n) =>
       emit("node", { id: n.id, status: n.status, opinions: n.opinions }),
   });
@@ -56,20 +58,24 @@ export async function runAnalyzeStream(
     ? await synthesizeFallbackStream(
         req.input,
         req.summary,
-        { env: deps.env, collector },
+        { env: deps.env, collector, signal: deps.signal },
         onToken,
       )
     : await synthesizeStream(
         req.input,
         req.summary,
         run.nodes,
-        { env: deps.env, collector },
+        { env: deps.env, collector, signal: deps.signal },
         onToken,
       );
 
   // ④ 検証
   emit("phase", { phase: "verify" satisfies SSEPhase });
-  const verified = await verify(synth.answer, { env: deps.env, collector });
+  const verified = await verify(synth.answer, {
+    env: deps.env,
+    collector,
+    signal: deps.signal,
+  });
 
   const quorumStr = `${run.successCount}/${run.nodes.length}`;
 
@@ -80,7 +86,7 @@ export async function runAnalyzeStream(
       deps.env.OCTO_KV,
       deps.requestId,
       collector,
-      { quorum: quorumStr, fallback: run.fallback },
+      { quorum: quorumStr, fallback: run.fallback, ms: Date.now() - started, kind: "analyze" },
       deps.now,
     );
   } catch (err) {

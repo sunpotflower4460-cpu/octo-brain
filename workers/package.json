@@ -10,10 +10,12 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "typecheck:bench": "tsc -p bench/tsconfig.json --noEmit",
+    "typecheck:ops": "tsc -p ops/tsconfig.json --noEmit",
     "bench": "tsx bench/main.ts",
     "bench:run": "tsx bench/run.ts",
     "bench:eval": "tsx bench/evaluate.ts",
-    "bench:report": "tsx bench/report.ts"
+    "bench:report": "tsx bench/report.ts",
+    "ops:report": "tsx ops/report.ts"
   },
   "dependencies": {
     "hono": "^4.6.14"

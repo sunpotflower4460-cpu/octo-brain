@@ -348,17 +348,19 @@ export default function App() {
           });
           applyTrace(assistantId, (t) => traceOnDone(t, now(), payload.meta.quorum));
         },
-        onError: (message) => {
+        onError: (message, info) => {
           flush();
-          if (abortedByUserRef.current) {
+          // ユーザー中断(停止ボタン or aborted コード)は失敗ではなく取り消し
+          if (abortedByUserRef.current || info?.code === "aborted") {
             patch(assistantId, { streaming: false, content: acc });
             applyTrace(assistantId, (t) => traceOnCancel(t, now()));
           } else {
+            // message は api クライアント側で既に平易化済み(429/504/5xx/ネットワーク)
             patch(assistantId, {
               streaming: false,
               errored: true,
               content: acc,
-              errorMessage: humanError(message),
+              errorMessage: message,
             });
             applyTrace(assistantId, (t) => traceOnError(t));
           }
@@ -662,9 +664,4 @@ export default function App() {
       <StatusAnnouncer message={statusMsg} />
     </div>
   );
-}
-
-function humanError(_raw: string): string {
-  // 生の HTTP 本文をユーザーへ出さない (§15.1)
-  return "接続が途切れました。途中までの回答は残しています。";
 }

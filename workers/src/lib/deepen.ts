@@ -30,6 +30,7 @@ export interface DeepenDeps {
   env: Env;
   now: Date;
   requestId: string;
+  signal?: AbortSignal; // P5: 全体タイムアウト予算
 }
 
 export interface DeepenResponse {
@@ -81,18 +82,18 @@ export async function runDeepen(
 
   // 1. 対角2腕の元レポートを取得(この入力に対する各腕の意見)
   const [baseA, baseB] = await Promise.all([
-    runLens(idA, req, deps.env, collector),
-    runLens(idB, req, deps.env, collector),
+    runLens(idA, req, deps.env, collector, deps.signal),
+    runLens(idB, req, deps.env, collector, deps.signal),
   ]);
 
   // 2. 互いの意見を渡して再考(2コール・Flash)
   const [reconA, reconB] = await Promise.all([
-    reconsider(idA, idB, baseB.opinions, req, deps.env, collector, 0),
-    reconsider(idB, idA, baseA.opinions, req, deps.env, collector, 1),
+    reconsider(idA, idB, baseB.opinions, req, deps.env, collector, 0, deps.signal),
+    reconsider(idB, idA, baseA.opinions, req, deps.env, collector, 1, deps.signal),
   ]);
 
   // 3. 中央脳が2つの再考を受けて織り直す
-  const answer = await weave(axis.label, reconA, reconB, idA, idB, req, deps.env, collector);
+  const answer = await weave(axis.label, reconA, reconB, idA, idB, req, deps.env, collector, deps.signal);
 
   // 原価ログ(絶対ルール5)
   try {
@@ -100,7 +101,7 @@ export async function runDeepen(
       deps.env.OCTO_KV,
       deps.requestId,
       collector,
-      { quorum: "deepen", fallback: false },
+      { quorum: "deepen", fallback: false, ms: Date.now() - started, kind: "deepen" },
       deps.now,
     );
   } catch {
@@ -123,6 +124,7 @@ async function runLens(
   req: DeepenInput,
   env: Env,
   collector: CostCollector,
+  signal?: AbortSignal,
 ): Promise<NodeResult> {
   const def = nodeDef(id);
   try {
@@ -132,7 +134,7 @@ async function runLens(
         { role: "system", content: nodeSystemPrompt(def) },
         { role: "user", content: buildNodeUserText(req.input, req.summary) },
       ],
-      { env, collector },
+      { env, collector, signal },
     );
     return parseNodeResponse(id, res.text);
   } catch {
@@ -148,6 +150,7 @@ async function reconsider(
   env: Env,
   collector: CostCollector,
   index: number,
+  signal?: AbortSignal,
 ): Promise<Reconsidered> {
   const selfDef = nodeDef(selfId);
   const partnerDef = nodeDef(partnerId);
@@ -163,7 +166,7 @@ async function reconsider(
       { role: "system", content: reconsiderSystem(selfDef.verb) },
       { role: "user", content: parts.join("\n\n") },
     ],
-    { env, collector, modelOverride: pickNodeModel(index) },
+    { env, collector, modelOverride: pickNodeModel(index), signal },
   );
   return parseReconsidered(res.text);
 }
@@ -195,6 +198,7 @@ async function weave(
   req: DeepenInput,
   env: Env,
   collector: CostCollector,
+  signal?: AbortSignal,
 ): Promise<string> {
   const nameA = nodeDef(idA).uiName;
   const nameB = nodeDef(idB).uiName;
@@ -215,7 +219,7 @@ async function weave(
       { role: "system", content: DEEPEN_SYNTH_SYSTEM },
       { role: "user", content: parts.join("\n\n") },
     ],
-    { env, collector },
+    { env, collector, signal },
   );
   return res.text.trim();
 }
