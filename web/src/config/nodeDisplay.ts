@@ -7,6 +7,7 @@
 export interface NodeDisplay {
   uiName: string;
   emoji: string;
+  plain: string; // 初見向けの平易な意味(docs/01_depth_design.md §4.1 の説明を要約)
   axis: string; // 軸ID
   axisLabel: string; // 軸ラベル(TENSION と対応)
   index: number; // 腕の番号 0..7
@@ -25,19 +26,19 @@ export const LENS_ORDER = [
 ] as const;
 
 export const NODE_DISPLAY: Record<string, NodeDisplay> = {
-  reason: { uiName: "論理", emoji: "🧠", axis: "time", axisLabel: "時の軸", index: 0 },
-  emotion: { uiName: "心", emoji: "💧", axis: "heart", axisLabel: "心の軸", index: 1 },
-  risk: { uiName: "盾", emoji: "🛡️", axis: "motion", axisLabel: "動の軸", index: 2 },
-  empathy: { uiName: "友", emoji: "🤝", axis: "soul", axisLabel: "魂の軸", index: 3 },
-  future: { uiName: "望遠", emoji: "🔭", axis: "time", axisLabel: "時の軸", index: 4 },
-  truth: { uiName: "鏡", emoji: "🪞", axis: "heart", axisLabel: "心の軸", index: 5 },
-  step: { uiName: "一歩", emoji: "🎯", axis: "motion", axisLabel: "動の軸", index: 6 },
-  values: { uiName: "核", emoji: "💎", axis: "soul", axisLabel: "魂の軸", index: 7 },
+  reason: { uiName: "論理", emoji: "🧠", plain: "事実と数字で考える", axis: "time", axisLabel: "時の軸", index: 0 },
+  emotion: { uiName: "心", emoji: "💧", plain: "言葉の裏の本音", axis: "heart", axisLabel: "心の軸", index: 1 },
+  risk: { uiName: "盾", emoji: "🛡️", plain: "見えない危うさ", axis: "motion", axisLabel: "動の軸", index: 2 },
+  empathy: { uiName: "友", emoji: "🤝", plain: "味方として受け止める", axis: "soul", axisLabel: "魂の軸", index: 3 },
+  future: { uiName: "望遠", emoji: "🔭", plain: "数年後からの視点", axis: "time", axisLabel: "時の軸", index: 4 },
+  truth: { uiName: "鏡", emoji: "🪞", plain: "目を背けている事実", axis: "heart", axisLabel: "心の軸", index: 5 },
+  step: { uiName: "一歩", emoji: "🎯", plain: "具体的な次の一手", axis: "motion", axisLabel: "動の軸", index: 6 },
+  values: { uiName: "核", emoji: "💎", plain: "本当に大切なもの", axis: "soul", axisLabel: "魂の軸", index: 7 },
 };
 
 export function displayFor(id: string): NodeDisplay {
   return (
-    NODE_DISPLAY[id] ?? { uiName: id, emoji: "🧩", axis: "", axisLabel: "", index: -1 }
+    NODE_DISPLAY[id] ?? { uiName: id, emoji: "🧩", plain: "", axis: "", axisLabel: "", index: -1 }
   );
 }
 

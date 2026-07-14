@@ -121,9 +121,12 @@ export default function NextThought({
 
   return (
     <section className="mt-3">
-      <h3 className="text-[12px] font-semibold text-[var(--text-muted)] mb-2">
+      <h3 className="text-[12px] font-semibold text-[var(--text-muted)]">
         次に、どう考える？
       </h3>
+      <p className="text-[11px] text-[var(--text-muted)] mb-2 mt-0.5">
+        任意です。もう一段だけ深く掘りたいときに。
+      </p>
       <div className="space-y-2">
         {resonancePrimary ? (
           <>
