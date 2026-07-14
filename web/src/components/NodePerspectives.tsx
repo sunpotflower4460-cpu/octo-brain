@@ -5,6 +5,7 @@ import { canResonate, toggleSelection, type Selected } from "../lib/pairSelect";
 import type { NodeView, Opinion, ResonancePair } from "../types";
 
 // 「8つの視点を見る」折りたたみ。opinions(claim/weight/why)をカード表示。
+// 各レンズには初見向けの平易な意味(plain)を添える。P2.7 のデザイントークンに統一。
 // P2.6: 各 opinion を選択可能にし、異なるレンズの2つを選ぶと掛け合わせ(共鳴)できる。
 // timeout / parse_error / error は暗転表示(隠さない)。
 
@@ -35,24 +36,24 @@ function OpinionRow({
         disabled={disabled}
         className={`w-full text-left rounded-md px-1.5 py-1 transition-colors disabled:cursor-not-allowed ${
           selected
-            ? "bg-cyan-500/15 ring-1 ring-cyan-400/60"
-            : "hover:bg-slate-800/50"
+            ? "bg-[var(--cyan)]/15 ring-1 ring-[var(--cyan)]/60"
+            : "hover:bg-[var(--surface-3)]/60"
         }`}
       >
         <div className="flex items-start gap-1.5">
           <span
             className={`mt-1 h-2 w-2 flex-shrink-0 rounded-full border ${
               selected
-                ? "border-cyan-300 bg-cyan-300"
-                : "border-slate-500 bg-transparent"
+                ? "border-[var(--cyan)] bg-[var(--cyan)]"
+                : "border-[var(--text-muted)] bg-transparent"
             }`}
             style={selected ? {} : { opacity: 0.3 + op.weight * 0.7 }}
             title={`確信度 ${pct}%`}
           />
-          <span className="text-xs text-slate-200 leading-snug">{op.claim}</span>
+          <span className="text-xs text-[var(--text-primary)] leading-snug">{op.claim}</span>
         </div>
         {op.why && (
-          <div className="ml-3.5 text-[11px] text-slate-500">— {op.why}</div>
+          <div className="ml-3.5 text-[11px] text-[var(--text-muted)]">— {op.why}</div>
         )}
       </button>
     </li>
@@ -74,24 +75,34 @@ function NodeCard({
   const failed = node.status !== "ok";
   return (
     <div
-      className={`rounded-xl border p-3 backdrop-blur-sm transition-all ${
+      className={`rounded-xl border p-3 transition-all ${
         failed
-          ? "border-slate-800/60 bg-slate-900/40 opacity-40"
-          : "border-purple-900/40 bg-slate-900/60"
+          ? "border-[var(--line-soft)] bg-[var(--surface-1)] opacity-45"
+          : "border-[var(--line-soft)] bg-[var(--surface-2)]"
       }`}
     >
-      <div className="flex items-center gap-2 mb-2">
-        <span className="text-lg" aria-hidden>
+      <div className="flex items-baseline gap-2 mb-2">
+        <span className="text-lg leading-none" aria-hidden>
           {d.emoji}
         </span>
-        <span className="text-sm font-semibold text-slate-200">{d.uiName}</span>
-        {d.axisLabel && (
-          <span className="text-[9px] font-mono text-slate-600">
-            {d.axisLabel}
-          </span>
-        )}
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="text-sm font-semibold text-[var(--text-primary)] whitespace-nowrap">
+              {d.uiName}
+            </span>
+            {d.axisLabel && !failed && (
+              <span className="text-[9px] font-mono text-[var(--text-muted)] whitespace-nowrap">
+                {d.axisLabel}
+              </span>
+            )}
+          </div>
+          {/* 初見でも「何を見る腕か」が分かる平易な一言 */}
+          {d.plain && (
+            <div className="text-[10.5px] text-[var(--text-muted)] leading-tight">{d.plain}</div>
+          )}
+        </div>
         {failed && (
-          <span className="ml-auto text-[10px] font-mono uppercase tracking-wider text-rose-400/80">
+          <span className="ml-auto flex-shrink-0 text-[10px] font-mono tracking-wider text-[var(--danger)]/80 whitespace-nowrap">
             {STATUS_LABEL[node.status] ?? node.status}
           </span>
         )}
@@ -109,7 +120,7 @@ function NodeCard({
             />
           ))}
           {node.opinions.length === 0 && (
-            <li className="text-xs text-slate-500 italic px-1.5">(意見なし)</li>
+            <li className="text-xs text-[var(--text-muted)] italic px-1.5">(意見なし)</li>
           )}
         </ul>
       )}
@@ -160,26 +171,30 @@ export default function NodePerspectives({
 
   return (
     <details className="mt-3 group">
-      <summary className="cursor-pointer text-xs font-semibold text-purple-300/80 hover:text-purple-200 select-none">
+      <summary className="cursor-pointer text-xs font-semibold text-[var(--violet)] hover:text-[var(--text-primary)] select-none">
         {nodes.length}つの視点を見る
       </summary>
 
+      <p className="mt-1.5 text-[11px] text-[var(--text-muted)]">
+        それぞれの腕が別々に出した見立てです。確信度が高いほど印が濃くなります。
+      </p>
+
       {onResonate && (
         <div className="mt-2 flex items-center gap-2 flex-wrap">
-          <span className="text-[11px] text-slate-500">
-            2つの意見を選ぶと掛け合わせられます
+          <span className="text-[11px] text-[var(--text-muted)]">
+            違う腕の意見を2つ選ぶと、掛け合わせて第三の答えを出せます
           </span>
           <button
             type="button"
             onClick={fire}
             disabled={!ready}
-            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold bg-gradient-to-r from-cyan-600 to-sky-600 hover:from-cyan-500 hover:to-sky-500 text-white shadow disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold bg-gradient-to-r from-[var(--cyan)] to-[var(--violet)] text-[#04121a] shadow disabled:opacity-30 disabled:cursor-not-allowed transition-all"
           >
             <Sparkles className="w-3.5 h-3.5" />
             この2つを掛け合わせる
             {selected.length > 0 && ` (${selected.length}/2)`}
           </button>
-          {hint && <span className="text-[11px] text-amber-400/80">{hint}</span>}
+          {hint && <span className="text-[11px] text-[var(--gold)]">{hint}</span>}
         </div>
       )}
 

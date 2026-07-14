@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, Menu, Plus, Settings as SettingsIcon, WifiOff } from "lucide-react";
+import { ArrowDown, HelpCircle, Menu, Plus, Settings as SettingsIcon, WifiOff } from "lucide-react";
 import { analyzeStream, deepen, resonate } from "./lib/api";
 import { LENS_ORDER, armsForAxis, displayFor } from "./config/nodeDisplay";
 import {
@@ -371,9 +371,17 @@ export default function App() {
   };
 
   const handleSubmit = () => {
-    const text = input.trim();
+    submitText(input);
+  };
+
+  const submitText = (raw: string) => {
+    const text = raw.trim();
     if (!text || busy) return;
-    if (!online) return; // オフライン時は送信しない(バナーで告知)
+    if (!online) {
+      // オフライン時は送らず入力欄に載せるだけ(バナーで告知)
+      setInput(text);
+      return;
+    }
     ensureConversation(text);
     setInput("");
     void runAnalyze(text);
@@ -514,6 +522,14 @@ export default function App() {
         </span>
         <button
           type="button"
+          aria-label="使い方"
+          onClick={() => setShowOnboarding(true)}
+          className="w-9 h-9 flex items-center justify-center rounded text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+        >
+          <HelpCircle className="w-5 h-5" />
+        </button>
+        <button
+          type="button"
           aria-label="新しい会話"
           onClick={() => void newConversation()}
           className="w-9 h-9 flex items-center justify-center rounded text-[var(--text-muted)] hover:text-[var(--text-primary)]"
@@ -570,7 +586,7 @@ export default function App() {
           <div ref={scrollRef} className="flex-1 overflow-y-auto overscroll-contain">
             <div className="mx-auto w-full max-w-[var(--read-max)] px-4 md:px-6 py-6">
               {empty ? (
-                <Hero onPick={(t) => setInput(t)} />
+                <Hero onPick={submitText} onHowItWorks={() => setShowOnboarding(true)} />
               ) : (
                 <Conversation
                   messages={messages}
