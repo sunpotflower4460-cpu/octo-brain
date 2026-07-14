@@ -15,6 +15,8 @@ import {
   BOUNDARY_IDS,
   MOCK,
   RUBRIC_KEYS,
+  RUBRIC_LABEL,
+  RUBRIC_DEF,
   type Question,
   type RubricKey,
 } from "./config.js";
@@ -184,10 +186,13 @@ export async function evaluatePair(
   if (MOCK) return mockEval(question, first, second);
 
   const isBoundary = BOUNDARY_IDS.includes(question.id);
-  const rubricList = RUBRIC_KEYS.join(", ");
-  const system = `あなたは回答品質の評価者です。同じ質問への2つの回答(回答1/回答2)を比較し、各回答を次の5項目で1〜5点で採点してください: ${rubricList} (深さ/多角性/実用性/正確さ/簡潔さ)。
+  // 項目リスト・定義・JSONテンプレートは RUBRIC_KEYS から生成し、追加時のズレを防ぐ。
+  const rubricDefs = RUBRIC_KEYS.map((k) => `${k}(${RUBRIC_LABEL[k]}): ${RUBRIC_DEF[k]}`).join("\n");
+  const scoreTemplate = `{${RUBRIC_KEYS.map((k) => `"${k}":n`).join(",")}}`;
+  const system = `あなたは回答品質の評価者です。同じ質問への2つの回答(回答1/回答2)を比較し、各回答を次の${RUBRIC_KEYS.length}項目で1〜5点で採点してください:
+${rubricDefs}
 出力は次のJSONのみ。前置き禁止:
-{"answer1":{"depth":n,"perspective":n,"practicality":n,"accuracy":n,"conciseness":n},"answer2":{...}${isBoundary ? ',"honest1":true|false,"honest2":true|false' : ""}}
+{"answer1":${scoreTemplate},"answer2":${scoreTemplate}${isBoundary ? ',"honest1":true|false,"honest2":true|false' : ""}}
 ${isBoundary ? "この問題は数学的正確さ/最新情報が問われる。誤魔化さず限界を正直に認めた回答は honest=true。" : ""}`;
   const user = `【質問】\n${question.q}\n\n【回答1】\n${first}\n\n【回答2】\n${second}`;
 
@@ -294,6 +299,7 @@ function mockEval(
     practicality: 4,
     accuracy: boundary ? 2 : 4,
     conciseness: 3,
+    specificity: boundary ? 3 : 5, // 8視点は固有状況に踏み込みやすい
   };
   const b: RubricScore = {
     depth: 3,
@@ -301,6 +307,7 @@ function mockEval(
     practicality: 4,
     accuracy: boundary ? 2 : 4,
     conciseness: 5,
+    specificity: 2, // 単発は一般論に寄りやすい
   };
   // 実際の提示順(first/second)に合わせて position を割り当てる。
   // モックA回答には "OctoBrain" が含まれる。
