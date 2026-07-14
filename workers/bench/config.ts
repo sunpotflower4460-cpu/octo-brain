@@ -60,6 +60,7 @@ export const RUBRIC_KEYS = [
   "practicality", // 実用性
   "accuracy", // 正確さ
   "conciseness", // 簡潔さ
+  "specificity", // 刺さり(P4追加): その人固有の状況に踏み込み一般論で終わらない度合い
 ] as const;
 
 export type RubricKey = (typeof RUBRIC_KEYS)[number];
@@ -70,6 +71,17 @@ export const RUBRIC_LABEL: Record<RubricKey, string> = {
   practicality: "実用性",
   accuracy: "正確さ",
   conciseness: "簡潔さ",
+  specificity: "刺さり",
+};
+
+// 評価者への各項目の定義(採点基準を一定にする)。
+export const RUBRIC_DEF: Record<RubricKey, string> = {
+  depth: "表層で終わらず、前提や背景まで掘り下げているか",
+  perspective: "複数の異なる角度から捉えているか",
+  practicality: "次の具体的な行動につながるか",
+  accuracy: "事実関係・論理に誤りがないか",
+  conciseness: "冗長でなく要点が締まっているか",
+  specificity: "その人固有の状況・言葉に踏み込み、一般論で終わっていないか(高いほど刺さる)",
 };
 
 // 境界問題 (負けてよい。限界を正直に認めるかを見る)

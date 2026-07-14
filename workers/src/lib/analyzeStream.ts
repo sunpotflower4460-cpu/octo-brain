@@ -11,6 +11,7 @@ import {
 } from "./synthesize.js";
 import { verify } from "./verify.js";
 import { CostCollector, incrementQuota, logCost } from "./costlog.js";
+import { detectBoundary, boundaryPrefix, withBoundaryPrefix } from "./boundary.js";
 import { planLenses, planQuorum } from "../config/nodes.js";
 import type { AnalyzeInput, AnalyzeDeps, AnalyzeMeta } from "./analyze.js";
 import type { Domain } from "../types.js";
@@ -54,6 +55,9 @@ export async function runAnalyzeStream(
   // ③ 掘る統合(token 逐次) or フォールバック
   emit("phase", { phase: "synth" satisfies SSEPhase });
   const onToken = (t: string) => emit("token", { t });
+  // 境界の正直さ: 苦手系は回答冒頭に但し書きを先出しする(ストリームでも最初に見える)
+  const boundary = detectBoundary(req.input);
+  if (boundary) emit("token", { t: `${boundaryPrefix(boundary)}\n\n` });
   const synth = run.fallback
     ? await synthesizeFallbackStream(
         req.input,
@@ -109,12 +113,13 @@ export async function runAnalyzeStream(
     totalCost: collector.totalCost(),
     ms: Date.now() - started,
     quotaUsed,
+    boundary,
   };
   if (warnings.length > 0) meta.warnings = warnings;
 
-  // ⑥ done(一括JSONと同形)
+  // ⑥ done(一括JSONと同形)。answer は但し書きを前置きした最終テキスト
   emit("done", {
-    answer: verified.text,
+    answer: withBoundaryPrefix(verified.text, boundary),
     summary: synth.summary,
     nodes: run.nodes.map((n) => ({
       id: n.id,

@@ -7,6 +7,7 @@ import { runNodes } from "./runNodes.js";
 import { synthesize, synthesizeFallback } from "./synthesize.js";
 import { verify } from "./verify.js";
 import { CostCollector, incrementQuota, logCost } from "./costlog.js";
+import { detectBoundary, withBoundaryPrefix, type BoundaryKind } from "./boundary.js";
 import { planLenses, planQuorum } from "../config/nodes.js";
 import type {
   Domain,
@@ -51,6 +52,7 @@ export interface AnalyzeMeta {
   totalCost: number;
   ms: number;
   quotaUsed: number | null;
+  boundary?: BoundaryKind | null; // 正直な但し書きを添えた領域(計算/最新情報)。null は無し
   warnings?: string[];
 }
 
@@ -105,6 +107,10 @@ export async function runAnalyze(
     signal: deps.signal,
   });
 
+  // ④' 境界の正直さ: 苦手系(計算/最新情報)を検出したら回答冒頭に正直な但し書き
+  const boundary = detectBoundary(req.input);
+  const answer = withBoundaryPrefix(verified.text, boundary);
+
   const quorumStr = `${run.successCount}/${run.nodes.length}`;
 
   // ⑤ 原価ログ + クォータ(KV)。失敗は握りつぶさず warnings に。
@@ -137,11 +143,12 @@ export async function runAnalyze(
     totalCost: collector.totalCost(),
     ms: Date.now() - started,
     quotaUsed,
+    boundary,
   };
   if (warnings.length > 0) meta.warnings = warnings;
 
   return {
-    answer: verified.text,
+    answer,
     summary: synth.summary,
     nodes: run.nodes.map((n) => ({
       id: n.id,

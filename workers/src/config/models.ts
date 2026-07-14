@@ -64,9 +64,24 @@ export const MODELS: Record<ModelRole, ModelConfig> = {
   },
 };
 
-// 任意: ノード多様化。node役割に複数モデルを配列で持たせ、
-// ノードindexで振り分けると出力相関がさらに下がる (P1以降で利用)。
-// 空配列のときは MODELS.node のみを使う。
+// ノード多様化プール (P4)。node役割に複数社の軽量モデルを持たせ、pickNodeModel が
+// ノードindexで振り分ける。異なる学習分布のモデルを混ぜると出力の相関が下がり、
+// 8視点の「多角性」が上がる (MoA研究の知見)。
+//
+// 【P4 実測後に確定する / この環境では未設定】
+//   実キー・実価格が要るためプールは空のまま(空なら MODELS.node のみを使う=挙動不変)。
+//   実測(bench の多角性スコア変化)を見て 2〜3 社を選び、下の例のように設定する:
+//
+//   export const NODE_MODEL_POOL: ModelConfig[] = [
+//     { provider: "openai-compat", baseURL: "SET_ME_A", model: "SET_ME_A", maxTokens: 250,
+//       keyEnv: "NODE_A_API_KEY", pricePerMTokIn: 0, pricePerMTokOut: 0 },
+//     { provider: "openai-compat", baseURL: "SET_ME_B", model: "SET_ME_B", maxTokens: 250,
+//       keyEnv: "NODE_B_API_KEY", pricePerMTokIn: 0, pricePerMTokOut: 0 },
+//     { provider: "gemini", model: "SET_ME_C", maxTokens: 250,
+//       keyEnv: "GEMINI_API_KEY", pricePerMTokIn: 0, pricePerMTokOut: 0 },
+//   ];
+//   ※ 各社の keyEnv は wrangler secret / .dev.vars で個別に設定(リポジトリに書かない)。
+//   ※ 弱いモデルを混ぜると総合が下がることがある(MoA知見)。1社追加→再ベンチのループで確認。
 export const NODE_MODEL_POOL: ModelConfig[] = [];
 
 // index に応じて node 用モデルを選ぶ。プールが空なら既定の node モデル。
