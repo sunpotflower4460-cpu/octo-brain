@@ -23,6 +23,7 @@ export interface ResonateDeps {
   env: Env;
   now: Date;
   requestId: string;
+  signal?: AbortSignal; // P5: 全体タイムアウト予算
 }
 
 export interface ResonateResponse {
@@ -98,7 +99,7 @@ export async function runResonate(
       { role: "system", content: RESONATE_SYSTEM },
       { role: "user", content: parts.join("\n\n") },
     ],
-    { env: deps.env, collector, maxTokens: RESONATE_MAX_TOKENS },
+    { env: deps.env, collector, maxTokens: RESONATE_MAX_TOKENS, signal: deps.signal },
   );
 
   try {
@@ -106,7 +107,7 @@ export async function runResonate(
       deps.env.OCTO_KV,
       deps.requestId,
       collector,
-      { quorum: "resonate", fallback: false },
+      { quorum: "resonate", fallback: false, ms: Date.now() - started, kind: "resonate" },
       deps.now,
     );
   } catch {

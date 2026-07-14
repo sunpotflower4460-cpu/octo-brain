@@ -23,6 +23,8 @@ export class CostCollector implements CostSink {
 export interface CostLogMeta {
   quorum: string; // 例: "6/8"
   fallback: boolean;
+  ms?: number; // リクエスト全体の実時間(ops:report の平均レイテンシ用)
+  kind?: string; // "analyze" | "deepen" | "resonate" 等(集計の内訳用)
 }
 
 export interface StoredCostRecord {
@@ -30,6 +32,8 @@ export interface StoredCostRecord {
   totalCost: number;
   quorum: string;
   fallback: boolean;
+  ms?: number;
+  kind?: string;
 }
 
 // §8: cost:{yyyymmdd}:{requestId} に集約1件を保存。
@@ -46,8 +50,15 @@ export async function logCost(
     totalCost: collector.totalCost(),
     quorum: meta.quorum,
     fallback: meta.fallback,
+    ms: meta.ms,
+    kind: meta.kind,
   };
   await kv.put(key, JSON.stringify(value), { expirationTtl: COST_TTL_SEC });
+}
+
+// quota キーの生成(guard の残量チェックと共有し、キー形式を一元管理)。
+export function quotaKey(clientId: string, now: Date): string {
+  return `quota:${clientId}:${yyyymm(now)}`;
 }
 
 // §8: quota:{clientId}:{yyyymm} を +1。新しい使用回数を返す。
@@ -56,7 +67,7 @@ export async function incrementQuota(
   clientId: string,
   now: Date,
 ): Promise<number> {
-  const key = `quota:${clientId}:${yyyymm(now)}`;
+  const key = quotaKey(clientId, now);
   const cur = await kv.get(key);
   const parsed = cur ? parseInt(cur, 10) : 0;
   const next = (Number.isFinite(parsed) ? parsed : 0) + 1;

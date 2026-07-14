@@ -9,6 +9,14 @@ ENVIRONMENT = "development"
 # ここ or デプロイ環境の vars で上書きする
 ALLOWED_ORIGIN = ""
 
+# P5 堅牢化: クォータ・連打防止・全体タイムアウト予算(文字列。未設定なら既定値)
+# FREE_MONTHLY_QUOTA: 無料枠の月間上限(超過で 429 quota_exceeded)
+FREE_MONTHLY_QUOTA = "100"
+# MIN_INTERVAL_MS: 同一clientIdの最小リクエスト間隔(未満は 429 too_frequent)
+MIN_INTERVAL_MS = "1500"
+# REQUEST_BUDGET_MS: リクエスト全体の実時間上限(超過でモデル呼び出しを中断し 504 timeout)
+REQUEST_BUDGET_MS = "30000"
+
 # KVネームスペース。id はプレースホルダー。実際のIDは下記コマンドで作成して差し替える:
 #   wrangler kv namespace create OCTO_KV
 #   wrangler kv namespace create OCTO_KV --preview

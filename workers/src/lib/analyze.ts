@@ -30,6 +30,8 @@ export interface AnalyzeDeps {
   now: Date;
   requestId: string;
   nodeTimeoutMs?: number;
+  // P5: リクエスト全体のタイムアウト予算。超過でモデル呼び出しを中断する。
+  signal?: AbortSignal;
 }
 
 export interface AnalyzeNodeView {
@@ -80,6 +82,7 @@ export async function runAnalyze(
     env: deps.env,
     collector,
     nodeTimeoutMs: deps.nodeTimeoutMs,
+    signal: deps.signal,
   });
 
   // ③ 掘る統合 or フォールバック
@@ -87,14 +90,20 @@ export async function runAnalyze(
     ? await synthesizeFallback(req.input, req.summary, {
         env: deps.env,
         collector,
+        signal: deps.signal,
       })
     : await synthesize(req.input, req.summary, run.nodes, {
         env: deps.env,
         collector,
+        signal: deps.signal,
       });
 
   // ④ 検証(表面のみ最小修正)
-  const verified = await verify(synth.answer, { env: deps.env, collector });
+  const verified = await verify(synth.answer, {
+    env: deps.env,
+    collector,
+    signal: deps.signal,
+  });
 
   const quorumStr = `${run.successCount}/${run.nodes.length}`;
 
@@ -105,7 +114,7 @@ export async function runAnalyze(
       deps.env.OCTO_KV,
       deps.requestId,
       collector,
-      { quorum: quorumStr, fallback: run.fallback },
+      { quorum: quorumStr, fallback: run.fallback, ms: Date.now() - started, kind: "analyze" },
       deps.now,
     );
   } catch (err) {

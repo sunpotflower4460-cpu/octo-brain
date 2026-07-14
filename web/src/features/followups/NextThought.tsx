@@ -67,9 +67,7 @@ export default function NextThought({
         </button>
       )}
       {msg.deepenError && (
-        <p className="mt-2 text-[11px] text-[var(--danger)]">
-          深化に失敗しました。時間をおいて再度お試しください。
-        </p>
+        <p className="mt-2 text-[11px] text-[var(--danger)]">{msg.deepenError}</p>
       )}
     </div>
   );
@@ -156,9 +154,7 @@ export default function NextThought({
         </div>
       ))}
       {msg.resonateError && (
-        <p className="mt-2 text-[11px] text-[var(--danger)]">
-          掛け合わせに失敗しました。時間をおいて再度お試しください。
-        </p>
+        <p className="mt-2 text-[11px] text-[var(--danger)]">{msg.resonateError}</p>
       )}
     </section>
   );
