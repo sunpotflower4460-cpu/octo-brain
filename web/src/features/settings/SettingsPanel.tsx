@@ -1,6 +1,13 @@
 import { useEffect } from "react";
-import { X } from "lucide-react";
+import { X, Flag, Shield, FileText } from "lucide-react";
 import { useFocusTrap } from "../../hooks/useFocusTrap";
+import {
+  APP_VERSION,
+  PRIVACY_URL,
+  TERMS_URL,
+  isConfiguredUrl,
+  reportMailto,
+} from "../../config/appInfo";
 import type {
   CoreSetting,
   DetailSetting,
@@ -130,6 +137,42 @@ export default function SettingsPanel({
           >
             ローカル会話データを削除
           </button>
+        </div>
+
+        {/* 報告導線・規約・バージョン (App Review ガイドライン1.2 / 情報) */}
+        <div className="mt-3 pt-3 border-t border-[var(--line-soft)] space-y-1">
+          <a
+            href={reportMailto()}
+            className="flex items-center gap-2 min-h-[44px] px-3 rounded-[var(--radius-sm)] text-sm text-[var(--text-secondary)] hover:bg-[var(--surface-1)]"
+          >
+            <Flag className="w-4 h-4 flex-shrink-0" aria-hidden />
+            問題を報告 / お問い合わせ
+          </a>
+          {isConfiguredUrl(PRIVACY_URL) && (
+            <a
+              href={PRIVACY_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 min-h-[44px] px-3 rounded-[var(--radius-sm)] text-sm text-[var(--text-secondary)] hover:bg-[var(--surface-1)]"
+            >
+              <Shield className="w-4 h-4 flex-shrink-0" aria-hidden />
+              プライバシーポリシー
+            </a>
+          )}
+          {isConfiguredUrl(TERMS_URL) && (
+            <a
+              href={TERMS_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 min-h-[44px] px-3 rounded-[var(--radius-sm)] text-sm text-[var(--text-secondary)] hover:bg-[var(--surface-1)]"
+            >
+              <FileText className="w-4 h-4 flex-shrink-0" aria-hidden />
+              利用規約
+            </a>
+          )}
+          <p className="px-3 pt-1 text-[11px] text-[var(--text-muted)]">
+            OctoBrain v{APP_VERSION}
+          </p>
         </div>
       </div>
     </div>
