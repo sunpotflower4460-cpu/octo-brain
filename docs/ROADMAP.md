@@ -134,6 +134,10 @@ M5「世に出る」    P9 申請準備 → P10 リリース・運用
 
 ## P9 — 申請準備: AIアプリ特有の審査対策 【重さ: 中】
 
+> **申請準備の下書き一式は `docs/release/` と `docs/legal/` に用意済み**(自動でできる範囲)。
+> 残りの手動作業は `docs/release/submission_checklist.md`(マスターチェックリスト)を参照。
+> P7/P8/P10 の手動手順も runbook 化済み(`docs/release/ios_build_runbook.md` / `iap_plan.md` / `ops_runbook.md`)。
+
 **目的**: 一発通過を狙う。AIチャットは通常アプリより見られる点が多い。
 
 - **プライバシーポリシー**: 入力テキストが処理のため外部LLM APIへ送信されること / KVログの保持期間(90日)/ トラッキングなし、を明記
