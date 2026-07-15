@@ -29,10 +29,14 @@ const VALID_PLANS: Plan[] = ["light", "deep"];
 
 const app = new Hono<{ Bindings: Env }>();
 
-// CORS: 開発は localhost:5173、本番オリジンは環境変数 ALLOWED_ORIGIN で指定
+// CORS: 開発は localhost:5173、Capacitor(iOS/Android WebView)は localhost 系オリジン、
+// 本番オリジンは環境変数 ALLOWED_ORIGIN で指定。
 app.use("/api/*", (c, next) => {
   const allowed = [
-    "http://localhost:5173",
+    "http://localhost:5173", // Vite dev
+    "capacitor://localhost", // iOS WKWebView (Capacitor 既定オリジン)
+    "http://localhost", // Android WebView
+    "https://localhost", // 一部の WKWebView 構成
     ...(c.env.ALLOWED_ORIGIN ? [c.env.ALLOWED_ORIGIN] : []),
   ];
   return cors({
