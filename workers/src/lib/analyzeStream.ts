@@ -13,7 +13,7 @@ import { verify } from "./verify.js";
 import { CostCollector, incrementQuota, logCost } from "./costlog.js";
 import { detectBoundary, boundaryPrefix, withBoundaryPrefix } from "./boundary.js";
 import { planLenses, planQuorum } from "../config/nodes.js";
-import type { AnalyzeInput, AnalyzeDeps, AnalyzeMeta } from "./analyze.js";
+import { toNodeView, type AnalyzeInput, type AnalyzeDeps, type AnalyzeMeta } from "./analyze.js";
 import type { Domain } from "../types.js";
 
 export type SSEPhase = "routing" | "nodes" | "synth" | "verify";
@@ -48,8 +48,7 @@ export async function runAnalyzeStream(
     collector,
     nodeTimeoutMs: deps.nodeTimeoutMs,
     signal: deps.signal,
-    onNodeComplete: (n) =>
-      emit("node", { id: n.id, status: n.status, opinions: n.opinions }),
+    onNodeComplete: (n) => emit("node", toNodeView(n)),
   });
 
   // ③ 掘る統合(token 逐次) or フォールバック
@@ -121,11 +120,7 @@ export async function runAnalyzeStream(
   emit("done", {
     answer: withBoundaryPrefix(verified.text, boundary),
     summary: synth.summary,
-    nodes: run.nodes.map((n) => ({
-      id: n.id,
-      status: n.status,
-      opinions: n.opinions,
-    })),
+    nodes: run.nodes.map(toNodeView),
     meta,
   });
 }

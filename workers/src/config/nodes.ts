@@ -81,12 +81,15 @@ export function axisLabel(id: AxisId): string {
 }
 
 // 軸ラベル(統合脳が出す "心の軸" 等)から AxisDef を引く。深化で使う。
+// 完全一致を優先し、部分一致は「ちょうど1軸だけ」に限る(複数軸が含まれる曖昧文は null)。
 export function axisByLabel(label: string): AxisDef | null {
   const norm = label.trim();
+  if (norm.length === 0) return null;
   for (const a of Object.values(AXES)) {
-    if (a.label === norm || norm.includes(a.label) || a.id === norm) return a;
+    if (a.label === norm || a.id === norm) return a;
   }
-  return null;
+  const hits = Object.values(AXES).filter((a) => norm.includes(a.label));
+  return hits.length === 1 ? hits[0] : null;
 }
 
 // ドメイン→起動する2軸 (§4.3)。迷ったら心+動。

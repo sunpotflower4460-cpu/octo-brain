@@ -39,6 +39,12 @@ export interface AnalyzeNodeView {
   id: string;
   status: NodeResult["status"];
   opinions: Opinion[];
+  // 部分失敗の可視化用。null は正常。API レスポンスに必ず含める。
+  flag: NodeResult["flag"];
+}
+
+export function toNodeView(n: NodeResult): AnalyzeNodeView {
+  return { id: n.id, status: n.status, opinions: n.opinions, flag: n.flag };
 }
 
 export interface AnalyzeMeta {
@@ -72,9 +78,11 @@ export async function runAnalyze(
   const warnings: string[] = [];
 
   // ① Router: ドメイン分類(light の軸選択 + meta 表示)
+  // signal を渡し、リクエスト予算超過で router が宙吊りにならないようにする(P5)。
   const domain = await classifyDomain(req.input, {
     env: deps.env,
     collector,
+    signal: deps.signal,
   });
 
   // ② プラン別レンズ並列 + クォーラム
@@ -150,11 +158,7 @@ export async function runAnalyze(
   return {
     answer,
     summary: synth.summary,
-    nodes: run.nodes.map((n) => ({
-      id: n.id,
-      status: n.status,
-      opinions: n.opinions,
-    })),
+    nodes: run.nodes.map(toNodeView),
     meta,
   };
 }

@@ -17,6 +17,10 @@ describe("armsForAxis (深化で光る対角2腕)", () => {
     expect(armsForAxis("謎の軸")).toEqual([]);
     expect(armsForAxis("")).toEqual([]);
   });
+
+  it("複数軸が含まれる曖昧文は空配列(誤った対角を光らせない)", () => {
+    expect(armsForAxis("時の軸と心の軸")).toEqual([]);
+  });
 });
 
 describe("armsForLenses (共鳴で光る2腕)", () => {

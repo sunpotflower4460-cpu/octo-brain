@@ -132,6 +132,27 @@ describe("runNodes クォーラム", () => {
     expect(run.successCount).toBe(3);
     expect(run.fallback).toBe(true);
   });
+
+  it("flag付き・空opinions は成功に数えない(統合除外と一致)", async () => {
+    const EMPTY = JSON.stringify({ opinions: [], flag: "insufficient_input" });
+    const FLAGGED = JSON.stringify({
+      opinions: [{ claim: "外れ", weight: 0.9, why: "無関係" }],
+      flag: "off_topic",
+    });
+    mockedCall.mockImplementation(async (_role, messages) => {
+      const id = idOf(messages as ChatMessage[]);
+      if (id === "reason" || id === "emotion" || id === "risk") return result(OK_JSON);
+      if (id === "empathy") return result(EMPTY);
+      return result(FLAGGED);
+    });
+
+    const run = await runNodes(ALL_LENS_IDS, 4, "入力", "", { env });
+    // 実質使えるのは3件のみ → required=4 で fallback
+    expect(run.successCount).toBe(3);
+    expect(run.fallback).toBe(true);
+    expect(run.nodes.find((n) => n.id === "empathy")?.flag).toBe("insufficient_input");
+    expect(run.nodes.find((n) => n.id === "future")?.flag).toBe("off_topic");
+  });
 });
 
 describe("runNodes タイムアウト", () => {

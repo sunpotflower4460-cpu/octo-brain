@@ -31,6 +31,7 @@ import {
   setOnboarded,
   type Settings,
 } from "./lib/settings";
+import { loadOrCreateClientId } from "./lib/clientId";
 import { initNativeShell } from "./lib/native/shell";
 import LivingCore from "./features/cognition/LivingCore";
 import Hero from "./features/chat/Hero";
@@ -78,9 +79,11 @@ export default function App() {
     useAutoScroll(reducedMotion);
 
   const summaryRef = useRef("");
-  const clientIdRef = useRef(uuid());
+  const clientIdRef = useRef<string>("");
   const abortRef = useRef<AbortController | null>(null);
   const abortedByUserRef = useRef(false);
+  // busy の同期ミラー。連打で setState 反映前に二重送信するのを防ぐ。
+  const busyRef = useRef(false);
 
   // 同期アクセス用ミラー(永続化・会話切替で使う)
   const storageRef = useRef<StorageAdapter | null>(null);
@@ -159,13 +162,15 @@ export default function App() {
     await persistNow();
   }, [persistNow]);
 
-  // ---- マウント: storage/設定/オンボーディングの初期化 ----
+  // ---- マウント: storage/設定/オンボーディング/clientId の初期化 ----
   useEffect(() => {
     let cancelled = false;
     void initNativeShell(); // ネイティブのみ StatusBar/Keyboard/Splash を整える(web は no-op)
     (async () => {
-      const loaded = await loadSettings();
-      if (!cancelled) setSettings(loaded);
+      const [loaded, clientId] = await Promise.all([loadSettings(), loadOrCreateClientId()]);
+      if (cancelled) return;
+      setSettings(loaded);
+      clientIdRef.current = clientId;
       const s = await createStorage();
       if (cancelled) return;
       storageRef.current = s;
@@ -288,6 +293,8 @@ export default function App() {
 
   // ---- 送信 ----
   const runAnalyze = async (text: string) => {
+    // clientId 未初期化時は送らない(マウント直後の極端なレース)
+    if (!clientIdRef.current) return;
     const assistantId = uuid();
     setMessages((prev) => [
       ...prev,
@@ -301,6 +308,7 @@ export default function App() {
         trace: createTrace(now()),
       },
     ]);
+    busyRef.current = true;
     setBusy(true);
     followIfAtBottom();
     setTimeout(() => scrollToBottom("auto"), 0);
@@ -369,6 +377,7 @@ export default function App() {
       ac.signal,
     );
     abortRef.current = null;
+    busyRef.current = false;
     setBusy(false);
   };
 
@@ -378,7 +387,7 @@ export default function App() {
 
   const submitText = (raw: string) => {
     const text = raw.trim();
-    if (!text || busy) return;
+    if (!text || busyRef.current || busy) return;
     if (!online) {
       // オフライン時は送らず入力欄に載せるだけ(バナーで告知)
       setInput(text);
@@ -395,16 +404,17 @@ export default function App() {
   };
 
   const handleRetry = (msg: ChatMessage) => {
-    if (busy || !msg.sourceInput) return;
+    if (busyRef.current || busy || !msg.sourceInput) return;
     void runAnalyze(msg.sourceInput);
   };
 
   // ---- 深化 ----
   const handleDeepen = async (msg: ChatMessage) => {
     const tension = msg.meta?.tension;
-    if (busy || !tension || !msg.sourceInput) return;
+    if (busyRef.current || busy || !tension || !msg.sourceInput || !clientIdRef.current) return;
     const ids = armsForAxis(tension.axis).map((i) => LENS_ORDER[i]);
     setCoreAction({ kind: "tension", ids });
+    busyRef.current = true;
     setBusy(true);
     setDeepeningId(msg.id);
     try {
@@ -421,6 +431,7 @@ export default function App() {
     } finally {
       setDeepeningId(null);
       setCoreAction(null);
+      busyRef.current = false;
       setBusy(false);
     }
   };
@@ -430,8 +441,9 @@ export default function App() {
     msg: ChatMessage,
     pair: { a: ResonancePair; b: ResonancePair },
   ) => {
-    if (busy || !msg.sourceInput) return;
+    if (busyRef.current || busy || !msg.sourceInput || !clientIdRef.current) return;
     setCoreAction({ kind: "resonance", ids: [pair.a.lens, pair.b.lens] });
+    busyRef.current = true;
     setBusy(true);
     setResonatingId(msg.id);
     const label = `${displayFor(pair.a.lens).uiName} × ${displayFor(pair.b.lens).uiName}`;
@@ -455,6 +467,7 @@ export default function App() {
     } finally {
       setResonatingId(null);
       setCoreAction(null);
+      busyRef.current = false;
       setBusy(false);
     }
   };

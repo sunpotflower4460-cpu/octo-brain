@@ -23,6 +23,11 @@ describe("humanizeApiError", () => {
     expect(humanizeApiError(504, { error: "timeout" }).message).toContain("考えきれ");
   });
 
+  it("message だけの timeout コードも平易化できる(SSE error 互換)", () => {
+    // ストリーム内 error は { error, message } または message のみのことがある
+    expect(humanizeApiError(504, { error: "timeout" }).message).not.toBe("timeout");
+  });
+
   it("未知コードで 5xx はサーバー障害メッセージ", () => {
     const h = humanizeApiError(500, { error: "pipeline_error" });
     expect(h.message).toContain("サーバー");

@@ -56,8 +56,15 @@ export async function runNodes(
       : { id: lensIds[i], status: "error", opinions: [], flag: null },
   );
 
-  const successCount = nodes.filter((n) => n.status === "ok").length;
+  // 統合に使える報告のみを成功と数える(flag付き・空 opinions は除外)。
+  // synthesize.buildReports と同じ基準にし、空報告だけでクォーラム通過するのを防ぐ。
+  const successCount = nodes.filter(isUsableNode).length;
   return { nodes, successCount, required, fallback: successCount < required };
+}
+
+// 統合脳に渡せる報告か。status=ok かつ flag なし・opinions 1件以上。
+export function isUsableNode(n: NodeResult): boolean {
+  return n.status === "ok" && n.flag === null && n.opinions.length > 0;
 }
 
 async function runOne(

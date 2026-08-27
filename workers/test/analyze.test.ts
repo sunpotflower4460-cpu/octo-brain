@@ -73,6 +73,7 @@ describe("runAnalyze パイプライン (P1.5)", () => {
     // general → 心+動 = 4腕
     expect(res.nodes).toHaveLength(4);
     expect(res.nodes.every((n) => n.status === "ok")).toBe(true);
+    expect(res.nodes.every((n) => n.flag === null)).toBe(true);
     expect(res.nodes[0].opinions[0].claim).toBe("論点");
     expect(res.meta.plan).toBe("light");
     expect(res.meta.domain).toBe("general");

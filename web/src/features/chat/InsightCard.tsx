@@ -95,12 +95,19 @@ export default function InsightCard({
           )}
         </div>
       )}
+
+      {!streaming && meta?.fallback && (
+        <p className="mt-2 text-[11px] text-[var(--text-muted)] leading-snug">
+          一部の腕が戻れなかったため、中央脳だけで回答しました。
+        </p>
+      )}
     </article>
   );
 }
 
 function MetaDisclosure({ meta }: { meta: AnalyzeMeta }) {
-  const observed = meta.plan === "deep" ? 8 : 4;
+  // quorum は "成功数/起動数"。観点は計画上の固定値ではなく実際の分母を使う。
+  const launched = Number(meta.quorum.split("/")[1]) || (meta.plan === "deep" ? 8 : 4);
   const secs = (meta.ms / 1000).toFixed(1);
   return (
     <Disclosure summary={<span>処理の詳細</span>}>
@@ -108,9 +115,9 @@ function MetaDisclosure({ meta }: { meta: AnalyzeMeta }) {
         <dt className="text-[var(--text-muted)]">使用モード</dt>
         <dd>{meta.plan === "deep" ? "ディープ" : "ライト"}</dd>
         <dt className="text-[var(--text-muted)]">観点</dt>
-        <dd>{observed}</dd>
+        <dd>{launched}</dd>
         <dt className="text-[var(--text-muted)]">統合に使えた腕</dt>
-        <dd>{meta.quorum}</dd>
+        <dd>{meta.quorum}{meta.fallback ? "（フォールバック）" : ""}</dd>
         <dt className="text-[var(--text-muted)]">応答時間</dt>
         <dd>{secs}秒</dd>
         <dt className="text-[var(--text-muted)]">検証</dt>
