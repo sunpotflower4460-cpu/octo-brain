@@ -43,13 +43,18 @@ export function displayFor(id: string): NodeDisplay {
 }
 
 // 軸ラベル(例: "心の軸")→ 対角2腕の腕番号(深化グロー用)。
-// 未知の軸は空配列。
+// 完全一致を優先。部分一致は「ちょうど1軸ラベルだけ」に限り、曖昧文は空配列。
 export function armsForAxis(axisLabel: string): number[] {
   const norm = axisLabel.trim();
   if (norm.length === 0) return [];
-  return LENS_ORDER.map((id) => NODE_DISPLAY[id]).filter(
-    (d) => d.axisLabel === norm || norm.includes(d.axisLabel),
-  ).map((d) => d.index);
+  const displays = LENS_ORDER.map((id) => NODE_DISPLAY[id]);
+  const exact = displays.filter((d) => d.axisLabel === norm);
+  if (exact.length > 0) return exact.map((d) => d.index);
+
+  const labels = [...new Set(displays.map((d) => d.axisLabel).filter((l) => l.length > 0))];
+  const hits = labels.filter((l) => norm.includes(l));
+  if (hits.length !== 1) return [];
+  return displays.filter((d) => d.axisLabel === hits[0]).map((d) => d.index);
 }
 
 // レンズID配列 → 腕番号配列(共鳴グロー用)。深化と同じ index マッピングを流用。

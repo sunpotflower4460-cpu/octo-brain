@@ -67,6 +67,34 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+/* 背景の既存 Living Core グラフィックをゆっくり漂わせる */
+.ambient-core {
+  transform: translate(-50%, -50%);
+}
+
+@keyframes ambient-core-drift {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) translate(0, 0) scale(1);
+  }
+  33% {
+    transform: translate(-50%, -50%) translate(4%, -3%) scale(1.04);
+  }
+  66% {
+    transform: translate(-50%, -50%) translate(-3%, 2%) scale(0.98);
+  }
+}
+
+.ambient-core--drift {
+  animation: ambient-core-drift 56s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ambient-core--drift {
+    animation: none;
+  }
+}
+
 /* フォーカスリングは消さない (a11y) */
 :focus-visible {
   outline: 2px solid var(--cyan);

@@ -6,6 +6,8 @@ export type SSEPhase = "routing" | "nodes" | "synth" | "verify";
 
 export type NodeStatus = "ok" | "timeout" | "parse_error" | "error" | "skipped";
 
+export type NodeFlag = null | "insufficient_input" | "off_topic";
+
 export type Plan = "light" | "deep";
 
 // ノードの意見 (opinions形式, §4.1)
@@ -19,6 +21,8 @@ export interface NodeView {
   id: string;
   status: NodeStatus;
   opinions: Opinion[];
+  // 部分失敗の可視化。未送信時は null 扱い。
+  flag?: NodeFlag;
 }
 
 // 最緊張軸 (§5)
@@ -38,6 +42,8 @@ export interface Resonance {
   root: string;
 }
 
+export type BoundaryKind = "calculation" | "realtime";
+
 export interface AnalyzeMeta {
   plan: Plan;
   domain: string;
@@ -49,6 +55,7 @@ export interface AnalyzeMeta {
   totalCost: number;
   ms: number;
   quotaUsed: number | null;
+  boundary?: BoundaryKind | null;
   warnings?: string[];
 }
 

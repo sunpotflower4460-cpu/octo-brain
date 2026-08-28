@@ -17,10 +17,11 @@ import {
   DEFAULT_MIN_INTERVAL_MS,
   DEFAULT_LOCK_MS,
 } from "./lib/guard.js";
+import { combineAbortSignals } from "./lib/abort.js";
 import type { Context } from "hono";
 import type { ChatMessage, Env, Plan } from "./types.js";
 
-const VERSION = "0.0.0-p1.6";
+const VERSION = "0.0.0-p5";
 
 const MAX_INPUT_LEN = 4000;
 const MAX_SUMMARY_LEN = 500;
@@ -188,7 +189,9 @@ app.post("/api/analyze", async (c) => {
   const guard = await guardRequest(c, v.value.clientId);
   if (guard.blocked) return guard.blocked;
 
-  const signal = AbortSignal.timeout(requestBudgetMs(c.env));
+  const budget = AbortSignal.timeout(requestBudgetMs(c.env));
+  // クライアント切断でもモデル呼び出しを止め、無駄な原価・クォータ消化を防ぐ。
+  const signal = combineAbortSignals(budget, c.req.raw.signal);
   try {
     const res = await runAnalyze(v.value, {
       env: c.env,
@@ -198,8 +201,11 @@ app.post("/api/analyze", async (c) => {
     });
     return c.json(res);
   } catch (err) {
-    // 全体予算超過は 504、それ以外のパイプライン失敗は 500(いずれも握りつぶさない)
-    if (signal.aborted) {
+    // クライアント切断は応答不要(接続済み切断)。予算超過のみ 504。
+    if (c.req.raw.signal.aborted) {
+      return c.body(null);
+    }
+    if (budget.aborted) {
       return c.json({ error: "timeout", budgetMs: requestBudgetMs(c.env) }, 504);
     }
     return c.json(
@@ -239,7 +245,9 @@ app.post("/api/analyze/stream", async (c) => {
     );
   };
 
-  const signal = AbortSignal.timeout(requestBudgetMs(c.env));
+  const budget = AbortSignal.timeout(requestBudgetMs(c.env));
+  // クライアント切断でもモデル呼び出しを止め、無駄な原価・クォータ消化を防ぐ。
+  const signal = combineAbortSignals(budget, c.req.raw.signal);
   const pump = async (): Promise<void> => {
     try {
       await runAnalyzeStream(
@@ -248,15 +256,22 @@ app.post("/api/analyze/stream", async (c) => {
         emit,
       );
     } catch (err) {
+      // 切断済みなら emit 不要。予算超過は構造化 error でフロントが humanize できる形に。
+      if (c.req.raw.signal.aborted) return;
+      if (budget.aborted) {
+        emit("error", { error: "timeout", message: "timeout" });
+        return;
+      }
       emit("error", {
-        message: signal.aborted
-          ? "timeout"
-          : err instanceof Error
-            ? err.message
-            : String(err),
+        error: "pipeline_error",
+        message: err instanceof Error ? err.message : String(err),
       });
     } finally {
-      await writer.close();
+      try {
+        await writer.close();
+      } catch {
+        /* 既に閉じている場合は無視 */
+      }
       await guard.release();
     }
   };
@@ -309,7 +324,8 @@ app.post("/api/deepen", async (c) => {
   const guard = await guardRequest(c, clientId);
   if (guard.blocked) return guard.blocked;
 
-  const signal = AbortSignal.timeout(requestBudgetMs(c.env));
+  const budget = AbortSignal.timeout(requestBudgetMs(c.env));
+  const signal = combineAbortSignals(budget, c.req.raw.signal);
   try {
     const res = await runDeepen(
       { input, summary, tension: { axis: axisText }, priorAnswer, clientId },
@@ -317,7 +333,8 @@ app.post("/api/deepen", async (c) => {
     );
     return c.json(res);
   } catch (err) {
-    if (signal.aborted) {
+    if (c.req.raw.signal.aborted) return c.body(null);
+    if (budget.aborted) {
       return c.json({ error: "timeout", budgetMs: requestBudgetMs(c.env) }, 504);
     }
     return c.json(
@@ -365,7 +382,8 @@ app.post("/api/resonate", async (c) => {
   const guard = await guardRequest(c, clientId);
   if (guard.blocked) return guard.blocked;
 
-  const signal = AbortSignal.timeout(requestBudgetMs(c.env));
+  const budget = AbortSignal.timeout(requestBudgetMs(c.env));
+  const signal = combineAbortSignals(budget, c.req.raw.signal);
   try {
     const res = await runResonate(
       { input, summary, resonance: { a: v.a, b: v.b }, priorAnswer, clientId },
@@ -373,7 +391,8 @@ app.post("/api/resonate", async (c) => {
     );
     return c.json(res);
   } catch (err) {
-    if (signal.aborted) {
+    if (c.req.raw.signal.aborted) return c.body(null);
+    if (budget.aborted) {
       return c.json({ error: "timeout", budgetMs: requestBudgetMs(c.env) }, 504);
     }
     return c.json(

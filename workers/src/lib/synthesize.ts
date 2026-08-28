@@ -12,6 +12,7 @@ import {
   type NodeId,
   type Square,
 } from "../config/nodes.js";
+import { isUsableNode } from "./runNodes.js";
 import type {
   CostSink,
   Env,
@@ -79,18 +80,17 @@ export interface SynthReport {
 }
 
 // §5 除外ルール: flag付き / opinions空 / 非ok は除外。weight<0.4 は本文側で参考扱い。
+// 成功判定は runNodes.isUsableNode と同一基準(クォーラムと報告構築の齟齬を防ぐ)。
 export function buildReports(nodes: NodeResult[]): SynthReport[] {
-  return nodes
-    .filter((n) => n.status === "ok" && n.flag === null && n.opinions.length > 0)
-    .map((n) => {
-      const d = nodeDef(n.id as NodeId);
-      return {
-        lens: d.uiName,
-        axis: axisLabel(d.axis),
-        square: d.square,
-        opinions: n.opinions,
-      };
-    });
+  return nodes.filter(isUsableNode).map((n) => {
+    const d = nodeDef(n.id as NodeId);
+    return {
+      lens: d.uiName,
+      axis: axisLabel(d.axis),
+      square: d.square,
+      opinions: n.opinions,
+    };
+  });
 }
 
 // weight<0.4 の opinion だけを含むかどうか(テスト・可視化補助)。

@@ -144,9 +144,15 @@ function dispatch(
     case "done":
       handlers.onDone?.(data as DonePayload);
       break;
-    case "error":
-      handlers.onError?.((data as { message: string }).message);
+    case "error": {
+      // ストリーム内 error も HTTP エラーと同じく平易化(生の "timeout" 等を出さない)
+      const d = data as { message?: string; error?: string };
+      const code = typeof d.error === "string" ? d.error : typeof d.message === "string" ? d.message : "pipeline_error";
+      const status = code === "timeout" ? 504 : 500;
+      const h = humanizeApiError(status, { error: code });
+      handlers.onError?.(h.message, { code: h.code });
       break;
+    }
   }
 }
 

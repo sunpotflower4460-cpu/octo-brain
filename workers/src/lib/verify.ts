@@ -34,8 +34,9 @@ export async function verify(
     { env: opts.env, collector: opts.collector, signal: opts.signal },
   );
   const t = res.text.trim();
-  // "pass" (前後空白のみ) は無修正。空応答も安全側で無修正扱い。
-  if (t.length === 0 || t.toLowerCase() === "pass") {
+  // "pass" および末尾の句読点・感嘆符のみの揺れは無修正扱い。
+  // "pass\nOK" や本文を含む応答は修正済みとして採用する。
+  if (t.length === 0 || /^pass[.!。]?$/i.test(t)) {
     return { text: answer, modified: false };
   }
   return { text: t, modified: true };

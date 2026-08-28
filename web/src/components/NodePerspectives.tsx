@@ -16,6 +16,11 @@ const STATUS_LABEL: Record<string, string> = {
   skipped: "未起動",
 };
 
+const FLAG_LABEL: Record<string, string> = {
+  insufficient_input: "入力不足",
+  off_topic: "論点が外れた",
+};
+
 function OpinionRow({
   op,
   selected,
@@ -72,7 +77,11 @@ function NodeCard({
   busy: boolean;
 }) {
   const d = displayFor(node.id);
-  const failed = node.status !== "ok";
+  const flagged = Boolean(node.flag);
+  const failed = node.status !== "ok" || flagged;
+  const statusText = flagged
+    ? (FLAG_LABEL[node.flag!] ?? node.flag!)
+    : (STATUS_LABEL[node.status] ?? node.status);
   return (
     <div
       className={`rounded-xl border p-3 transition-all ${
@@ -103,7 +112,7 @@ function NodeCard({
         </div>
         {failed && (
           <span className="ml-auto flex-shrink-0 text-[10px] font-mono tracking-wider text-[var(--danger)]/80 whitespace-nowrap">
-            {STATUS_LABEL[node.status] ?? node.status}
+            {statusText}
           </span>
         )}
       </div>
@@ -143,7 +152,7 @@ export default function NodePerspectives({
   if (nodes.length === 0) return null;
 
   const toggle = (node: NodeView, i: number) => {
-    if (busy) return;
+    if (busy || node.flag) return;
     const candidate: Selected = {
       key: `${node.id}:${i}`,
       lens: node.id,
