@@ -34,6 +34,7 @@ import {
 import { loadOrCreateClientId } from "./lib/clientId";
 import { initNativeShell } from "./lib/native/shell";
 import LivingCore from "./features/cognition/LivingCore";
+import AmbientCosmos from "./features/atmosphere/AmbientCosmos";
 import Hero from "./features/chat/Hero";
 import Conversation from "./features/chat/Conversation";
 import Composer from "./features/chat/Composer";
@@ -519,51 +520,78 @@ export default function App() {
   const showMobileCore = busy || !!coreAction || (settings.core === "always" && !empty);
 
   return (
-    <div className="h-[100dvh] flex flex-col bg-[var(--bg-abyss)] text-[var(--text-primary)] overflow-hidden">
+    <div className="h-[100dvh] flex flex-col relative bg-[var(--bg-abyss)] text-[var(--text-primary)] overflow-hidden">
+      <AmbientCosmos reducedMotion={reducedMotion} />
+
       <header
-        className="flex-shrink-0 flex items-center gap-1 border-b border-[var(--line-soft)] px-2 sm:px-4"
+        className="relative z-10 flex-shrink-0 flex items-center border-b border-[var(--line-soft)] bg-[var(--bg-abyss)]/55 backdrop-blur-md"
         style={{ paddingTop: "calc(var(--safe-top) + 10px)", paddingBottom: 10 }}
       >
+        {/* lg+: Living Core 列にメニュー。未満は absolute で、タイトル左端を本文と一致させる */}
+        <div className="hidden lg:flex w-[var(--core-col)] flex-shrink-0 items-center px-4">
+          <button
+            type="button"
+            aria-label="会話一覧"
+            onClick={() => setDrawerOpen(true)}
+            className="w-9 h-9 flex items-center justify-center rounded text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+        </div>
         <button
           type="button"
           aria-label="会話一覧"
           onClick={() => setDrawerOpen(true)}
-          className="w-9 h-9 flex items-center justify-center rounded text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+          className="lg:hidden absolute left-2 w-9 h-9 flex items-center justify-center rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] z-10"
+          style={{ top: "calc(var(--safe-top) + 10px)" }}
         >
           <Menu className="w-5 h-5" />
         </button>
-        <span className="flex-1 text-center text-sm font-semibold tracking-wide text-[var(--text-secondary)]">
-          OctoBrain
-        </span>
-        <button
-          type="button"
-          aria-label="使い方"
-          onClick={() => setShowOnboarding(true)}
-          className="w-9 h-9 flex items-center justify-center rounded text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-        >
-          <HelpCircle className="w-5 h-5" />
-        </button>
-        <button
-          type="button"
-          aria-label="新しい会話"
-          onClick={() => void newConversation()}
-          className="w-9 h-9 flex items-center justify-center rounded text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-        >
-          <Plus className="w-5 h-5" />
-        </button>
-        <button
-          type="button"
-          aria-label="設定"
-          onClick={() => setSettingsOpen(true)}
-          className="w-9 h-9 flex items-center justify-center rounded text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-        >
-          <SettingsIcon className="w-5 h-5" />
-        </button>
+        <div className="flex-1 min-w-0">
+          {/* 読み幅・左右パディングを本文カラムと共有(タイトル左端を揃える) */}
+          <div className="mx-auto w-full max-w-[var(--read-max)] pl-12 pr-4 md:pr-6 lg:px-6 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void newConversation()}
+              aria-label="新しい会話を始める"
+              title="新しい会話"
+              className="text-sm font-semibold tracking-wide text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+            >
+              OctoBrain
+            </button>
+            <div className="ml-auto flex items-center gap-1 -mr-2">
+              <button
+                type="button"
+                aria-label="使い方"
+                onClick={() => setShowOnboarding(true)}
+                className="w-9 h-9 flex items-center justify-center rounded text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+              >
+                <HelpCircle className="w-5 h-5" />
+              </button>
+              <button
+                type="button"
+                aria-label="新しい会話"
+                onClick={() => void newConversation()}
+                className="w-9 h-9 flex items-center justify-center rounded text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+              >
+                <Plus className="w-5 h-5" />
+              </button>
+              <button
+                type="button"
+                aria-label="設定"
+                onClick={() => setSettingsOpen(true)}
+                className="w-9 h-9 flex items-center justify-center rounded text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+              >
+                <SettingsIcon className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+        </div>
       </header>
 
       {!online && (
         <div
-          className="flex-shrink-0 flex items-center justify-center gap-2 bg-[var(--gold)]/15 text-[var(--gold)] text-[12px] py-1.5 px-4"
+          className="relative z-10 flex-shrink-0 flex items-center justify-center gap-2 bg-[var(--gold)]/15 text-[var(--gold)] text-[12px] py-1.5 px-4"
           role="status"
         >
           <WifiOff className="w-3.5 h-3.5" aria-hidden />
@@ -571,9 +599,9 @@ export default function App() {
         </div>
       )}
 
-      <main className="flex-1 min-h-0 flex">
+      <main className="relative z-10 flex-1 min-h-0 flex">
         {/* 左: Living Core (desktop) */}
-        <aside className="hidden lg:flex flex-col w-[var(--core-col)] flex-shrink-0 border-r border-[var(--line-soft)] p-5">
+        <aside className="hidden lg:flex flex-col w-[var(--core-col)] flex-shrink-0 border-r border-[var(--line-soft)] bg-[var(--bg-depth)]/40 backdrop-blur-[2px] p-5">
           <div className="sticky top-5">
             <LivingCore
               trace={coreTrace}
@@ -588,7 +616,7 @@ export default function App() {
         <div className="flex-1 min-w-0 flex flex-col relative">
           {/* モバイル: Compact Core */}
           {showMobileCore && (
-            <div className="lg:hidden flex-shrink-0 border-b border-[var(--line-soft)] px-4 py-2">
+            <div className="lg:hidden flex-shrink-0 border-b border-[var(--line-soft)] bg-[var(--bg-depth)]/50 backdrop-blur-sm px-4 py-2">
               <LivingCore
                 trace={coreTrace}
                 reducedMotion={reducedMotion}
@@ -599,7 +627,7 @@ export default function App() {
           )}
 
           <div ref={scrollRef} className="flex-1 overflow-y-auto overscroll-contain">
-            <div className="mx-auto w-full max-w-[var(--read-max)] px-4 md:px-6 py-6">
+            <div className="mx-auto w-full max-w-[var(--read-max)] pl-12 pr-4 md:pr-6 lg:px-6 py-6">
               {empty ? (
                 <Hero onPick={submitText} onHowItWorks={() => setShowOnboarding(true)} />
               ) : (

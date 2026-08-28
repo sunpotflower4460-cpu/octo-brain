@@ -26,12 +26,14 @@ export default function Composer({
   const taRef = useRef<HTMLTextAreaElement>(null);
   const [composing, setComposing] = useState(false);
 
-  // 1〜6行で自動伸長
+  // 1〜6行で自動伸長。max未満は overflow を隠してスクロールバー(棒)を出さない。
   useLayoutEffect(() => {
     const ta = taRef.current;
     if (!ta) return;
     ta.style.height = "auto";
-    ta.style.height = `${Math.min(ta.scrollHeight, 168)}px`;
+    const next = Math.min(ta.scrollHeight, 168);
+    ta.style.height = `${next}px`;
+    ta.style.overflowY = ta.scrollHeight > 168 ? "auto" : "hidden";
   }, [value]);
 
   const canSend = value.trim().length > 0 && !busy;
@@ -45,7 +47,7 @@ export default function Composer({
 
   return (
     <div
-      className="border-t border-[var(--line-soft)] bg-[var(--bg-depth)]/85 backdrop-blur-md"
+      className="relative z-10 border-t border-[var(--line-soft)] bg-[var(--bg-depth)]/75 backdrop-blur-md"
       style={{ paddingBottom: "var(--safe-bottom)" }}
     >
       <div className="mx-auto w-full max-w-[var(--read-max)] px-3 md:px-4 pt-2.5 pb-3">
@@ -101,7 +103,7 @@ export default function Composer({
             onCompositionEnd={() => setComposing(false)}
             placeholder="決断、アイデア、本音を OctoBrain に…"
             aria-label="OctoBrain への問い"
-            className="flex-1 resize-none bg-transparent border-none py-2 text-[15px] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none disabled:opacity-60 leading-relaxed max-h-[168px]"
+            className="flex-1 resize-none overflow-hidden bg-transparent border-none py-2 text-[15px] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none disabled:opacity-60 leading-relaxed max-h-[168px]"
           />
           {busy ? (
             <button

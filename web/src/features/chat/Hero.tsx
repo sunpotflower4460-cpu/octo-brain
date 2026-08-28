@@ -24,7 +24,7 @@ export default function Hero({
   onHowItWorks?: () => void;
 }) {
   return (
-    <div className="flex flex-col items-center text-center px-4 py-6 md:py-10">
+    <div className="flex flex-col items-start text-left py-6 md:py-10">
       <h2 className="text-[26px] md:text-[32px] font-bold tracking-tight text-[var(--text-primary)]">
         OctoBrain
       </h2>
@@ -36,7 +36,7 @@ export default function Hero({
       </p>
 
       {/* 平易な3ステップ — 仕組みが一目で分かる */}
-      <ol className="mt-5 flex items-center gap-1.5 text-[12px]">
+      <ol className="mt-5 flex flex-wrap items-center gap-1.5 text-[12px]">
         {STEPS.map((s, i) => (
           <li key={s.n} className="flex items-center gap-1.5">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--line-soft)] bg-[var(--surface-1)] px-2.5 py-1">
