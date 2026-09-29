@@ -7,6 +7,7 @@ import { runNodes } from "./runNodes.js";
 import { synthesize, synthesizeFallback } from "./synthesize.js";
 import { verify } from "./verify.js";
 import { CostCollector, incrementQuota, logCost } from "./costlog.js";
+import { QUOTA_UNITS } from "./guard.js";
 import { detectBoundary, withBoundaryPrefix, type BoundaryKind } from "./boundary.js";
 import { planLenses, planQuorum } from "../config/nodes.js";
 import type {
@@ -135,7 +136,12 @@ export async function runAnalyze(
     warnings.push(`cost_log_failed: ${errMsg(err)}`);
   }
   try {
-    quotaUsed = await incrementQuota(deps.env.OCTO_KV, req.clientId, deps.now);
+    quotaUsed = await incrementQuota(
+      deps.env.OCTO_KV,
+      req.clientId,
+      deps.now,
+      QUOTA_UNITS[req.plan],
+    );
   } catch (err) {
     warnings.push(`quota_increment_failed: ${errMsg(err)}`);
   }

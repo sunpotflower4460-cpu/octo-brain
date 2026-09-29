@@ -84,6 +84,8 @@ export interface Env {
   OCTO_KV: KVNamespace;
   ENVIRONMENT?: string;
   ALLOWED_ORIGIN?: string;
+  // IP 単位のバースト制限(Cloudflare Rate Limiting バインディング)。未設定ならスキップ
+  IP_RATE_LIMITER?: RateLimit;
   // APIキー等のシークレットは keyEnv 経由で動的参照する (Record<string, string>)
   [key: string]: unknown;
 }

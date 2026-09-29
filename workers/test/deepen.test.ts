@@ -88,6 +88,10 @@ describe("runDeepen (腕間結合)", () => {
 
     // KV に原価記録
     expect([...store.keys()].some((k) => k.startsWith("cost:"))).toBe(true);
+
+    // 深化もクォータを消費する(原価比例で2単位)
+    expect(res.meta.quotaUsed).toBe(2);
+    expect([...store.entries()].find(([k]) => k.startsWith("quota:c1:"))?.[1]).toBe("2");
   });
 
   it("未知の軸ではエラー(深化ガード)", async () => {

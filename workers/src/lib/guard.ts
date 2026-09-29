@@ -9,7 +9,35 @@ export const DEFAULT_FREE_MONTHLY_QUOTA = 100;
 export const DEFAULT_MIN_INTERVAL_MS = 1500;
 export const DEFAULT_LOCK_MS = 40_000; // 全体予算(既定30s)より少し長く。異常終了時も lockUntil で自己回復
 export const DEFAULT_REQUEST_BUDGET_MS = 30_000;
+// IP 単位の1日上限(クォータ単位)。clientId を使い捨てて無料枠を回す濫用への原価の天井。
+// 携帯回線の CGNAT で複数人が同一IPになり得るため、個人の月間枠より十分大きく取る。
+export const DEFAULT_IP_DAILY_QUOTA = 300;
 const RL_TTL_SEC = 120;
+const IP_QUOTA_TTL_SEC = 2 * 24 * 60 * 60;
+
+// ---- clientId 検証 ----
+// クライアント生成の不透明ID(UUID 等)。KV キー長上限(512B)超過で KV 例外→ガードが
+// 素通りになるのを防ぐため、文字種と長さを入口で固定する。
+const CLIENT_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+
+export function isValidClientId(v: unknown): v is string {
+  return typeof v === "string" && CLIENT_ID_RE.test(v);
+}
+
+// ---- クォータ消費単位 ----
+// LLM 原価に比例させる。deep(8腕)と深化(5コール+統合)は light の約2倍。
+export type QuotaKind = "light" | "deep" | "deepen" | "resonate";
+export const QUOTA_UNITS: Record<QuotaKind, number> = {
+  light: 1,
+  deep: 2,
+  deepen: 2,
+  resonate: 1,
+};
+
+// deep プランの提供可否(IAP 導入時に "false" にして Pro 限定へ切り替える)。既定は有効。
+export function deepPlanEnabled(env: Env): boolean {
+  return env.DEEP_PLAN_ENABLED !== "false";
+}
 
 // 数値の環境変数を安全に読む(未設定/不正は既定へ)。
 export function numEnv(env: Env, key: string, fallback: number): number {
@@ -38,6 +66,7 @@ export async function checkQuota(
   clientId: string,
   now: Date,
   limit: number,
+  units = 1,
 ): Promise<QuotaState> {
   let used = 0;
   try {
@@ -48,7 +77,37 @@ export async function checkQuota(
     // KV 読み取り失敗は安全側(ブロックしない)
     used = 0;
   }
-  return { used, limit, allowed: used < limit };
+  // 今回の消費分(units)を足して上限以内なら受理。deep(2単位)は残り1では通さない。
+  return { used, limit, allowed: used + units <= limit };
+}
+
+// ---- IP 単位の1日上限 ----
+export function ipQuotaKey(ip: string, now: Date): string {
+  const d = `${now.getUTCFullYear()}${String(now.getUTCMonth() + 1).padStart(2, "0")}${String(now.getUTCDate()).padStart(2, "0")}`;
+  return `ipq:${ip}:${d}`;
+}
+
+// 読んで上限判定し、受理なら units を加算して保存する(受理時点で課金=失敗リクエストも数える)。
+// KV は結果整合のため同時多発では多少超過し得る(天井を線形に保つのが目的)。
+// KV 失敗は安全側(ブロックしない)だが、呼び出し側で warnings に載せられるよう ok=false を返す。
+export async function consumeIpQuota(
+  kv: KVNamespace,
+  ip: string,
+  now: Date,
+  units: number,
+  limit: number,
+): Promise<{ allowed: boolean; used: number; limit: number; kvOk: boolean }> {
+  const key = ipQuotaKey(ip, now);
+  try {
+    const cur = await kv.get(key);
+    const parsed = cur ? parseInt(cur, 10) : 0;
+    const used = Number.isFinite(parsed) ? parsed : 0;
+    if (used >= limit) return { allowed: false, used, limit, kvOk: true };
+    await kv.put(key, String(used + units), { expirationTtl: IP_QUOTA_TTL_SEC });
+    return { allowed: true, used: used + units, limit, kvOk: true };
+  } catch {
+    return { allowed: true, used: 0, limit, kvOk: false };
+  }
 }
 
 // ---- 連打防止(同時実行1本 + 最小間隔) ----

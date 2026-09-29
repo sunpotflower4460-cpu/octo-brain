@@ -15,7 +15,8 @@ import {
   type NodeId,
 } from "../config/nodes.js";
 import { pickNodeModel } from "../config/models.js";
-import { CostCollector, logCost } from "./costlog.js";
+import { CostCollector, incrementQuota, logCost } from "./costlog.js";
+import { QUOTA_UNITS } from "./guard.js";
 import type { Env, NodeResult, Opinion } from "../types.js";
 
 export interface DeepenInput {
@@ -40,6 +41,9 @@ export interface DeepenResponse {
     calls: number;
     totalCost: number;
     ms: number;
+    // 今月の使用量(クォータ単位)。KV 失敗時は null(warnings に理由)
+    quotaUsed: number | null;
+    warnings?: string[];
   };
 }
 
@@ -96,6 +100,8 @@ export async function runDeepen(
   const answer = await weave(axis.label, reconA, reconB, idA, idB, req, deps.env, collector, deps.signal);
 
   // 原価ログ(絶対ルール5)
+  // 原価ログ + クォータ消費。KV 失敗は非致命(回答は返す)だが握りつぶさず warnings に。
+  const warnings: string[] = [];
   try {
     await logCost(
       deps.env.OCTO_KV,
@@ -104,8 +110,19 @@ export async function runDeepen(
       { quorum: "deepen", fallback: false, ms: Date.now() - started, kind: "deepen" },
       deps.now,
     );
-  } catch {
-    // KV書き込み失敗は非致命(回答は返す)
+  } catch (err) {
+    warnings.push(`cost_log_failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  let quotaUsed: number | null = null;
+  try {
+    quotaUsed = await incrementQuota(
+      deps.env.OCTO_KV,
+      req.clientId,
+      deps.now,
+      QUOTA_UNITS.deepen,
+    );
+  } catch (err) {
+    warnings.push(`quota_increment_failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   return {
@@ -115,6 +132,8 @@ export async function runDeepen(
       calls: collector.calls.length,
       totalCost: collector.totalCost(),
       ms: Date.now() - started,
+      quotaUsed,
+      ...(warnings.length > 0 ? { warnings } : {}),
     },
   };
 }

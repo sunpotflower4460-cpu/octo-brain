@@ -11,7 +11,13 @@ import {
   acquireSlot,
   releaseSlot,
   checkQuota,
+  consumeIpQuota,
+  deepPlanEnabled,
+  isValidClientId,
   quotaLimit,
+  QUOTA_UNITS,
+  DEFAULT_IP_DAILY_QUOTA,
+  type QuotaKind,
   requestBudgetMs,
   numEnv,
   DEFAULT_MIN_INTERVAL_MS,
@@ -115,6 +121,7 @@ export function validateAnalyzeBody(body: unknown): ValidatedBody {
   }
   const clientId = typeof b.clientId === "string" ? b.clientId : "";
   if (clientId.length === 0) return { ok: false, error: "clientId_required" };
+  if (!isValidClientId(clientId)) return { ok: false, error: "invalid_clientId" };
 
   // plan 省略時は light(無料・安全側 §6)
   const plan = (typeof b.plan === "string" ? b.plan : "light") as Plan;
@@ -124,8 +131,9 @@ export function validateAnalyzeBody(body: unknown): ValidatedBody {
   return { ok: true, value: { input, summary, plan, clientId } };
 }
 
-// ---- P5 堅牢化ガード: 連打防止 + クォータ実ブロック ----
+// ---- P5 堅牢化ガード: IP制限 + 連打防止 + クォータ実ブロック ----
 // 全モデル呼び出しエンドポイントの入口で共通に使う。ブロック時は 429 を返す。
+// clientId はクライアント生成で使い捨て可能なため、IP 単位の天井(バースト+1日上限)を重ねる。
 // release() は処理完了後に必ず呼ぶ(finally)。同時実行ロックを解放する。
 interface GuardResult {
   blocked: Response | null;
@@ -135,11 +143,28 @@ interface GuardResult {
 async function guardRequest(
   c: Context<{ Bindings: Env }>,
   clientId: string,
+  kind: QuotaKind,
 ): Promise<GuardResult> {
   const env = c.env;
   const kv = env.OCTO_KV;
   const nowMs = Date.now();
   const noRelease = async (): Promise<void> => {};
+  const units = QUOTA_UNITS[kind];
+  // Cloudflare 本番では常に付与される。ローカル/テストで無い場合は IP 制限をスキップ
+  const ip = c.req.header("CF-Connecting-IP") ?? "";
+
+  // ⓪ IP 単位のバースト制限(Rate Limiting バインディング。未設定ならスキップ)
+  if (ip && env.IP_RATE_LIMITER) {
+    const { success } = await env.IP_RATE_LIMITER.limit({ key: ip });
+    if (!success) {
+      return {
+        blocked: c.json({ error: "ip_rate_limited", retryAfterMs: 60_000 }, 429, {
+          "Retry-After": "60",
+        }),
+        release: noRelease,
+      };
+    }
+  }
 
   // ① 連打防止(同時実行1本 + 最小間隔)
   const slot = await acquireSlot(kv, clientId, nowMs, {
@@ -163,13 +188,34 @@ async function guardRequest(
   };
 
   // ② クォータ実ブロック(上限超過中は深化・共鳴も含めて弾く)
-  const q = await checkQuota(kv, clientId, new Date(nowMs), quotaLimit(env));
+  const q = await checkQuota(kv, clientId, new Date(nowMs), quotaLimit(env), units);
   if (!q.allowed) {
     await release();
     return {
-      blocked: c.json({ error: "quota_exceeded", limit: q.limit, used: q.used }, 429),
+      blocked: c.json(
+        { error: "quota_exceeded", limit: q.limit, used: q.used, units },
+        429,
+      ),
       release: noRelease,
     };
+  }
+
+  // ③ IP 単位の1日上限(受理時点で units を加算)。clientId 使い捨てによる濫用の原価の天井
+  if (ip) {
+    const ipq = await consumeIpQuota(
+      kv,
+      ip,
+      new Date(nowMs),
+      units,
+      numEnv(env, "IP_DAILY_QUOTA", DEFAULT_IP_DAILY_QUOTA),
+    );
+    if (!ipq.allowed) {
+      await release();
+      return {
+        blocked: c.json({ error: "ip_quota_exceeded" }, 429),
+        release: noRelease,
+      };
+    }
   }
 
   return { blocked: null, release };
@@ -185,8 +231,11 @@ app.post("/api/analyze", async (c) => {
   }
   const v = validateAnalyzeBody(body);
   if (!v.ok) return c.json({ error: v.error, ...v.extra }, 400);
+  if (v.value.plan === "deep" && !deepPlanEnabled(c.env)) {
+    return c.json({ error: "plan_not_available", plan: "deep" }, 403);
+  }
 
-  const guard = await guardRequest(c, v.value.clientId);
+  const guard = await guardRequest(c, v.value.clientId, v.value.plan);
   if (guard.blocked) return guard.blocked;
 
   const budget = AbortSignal.timeout(requestBudgetMs(c.env));
@@ -230,9 +279,12 @@ app.post("/api/analyze/stream", async (c) => {
   }
   const v = validateAnalyzeBody(body);
   if (!v.ok) return c.json({ error: v.error, ...v.extra }, 400);
+  if (v.value.plan === "deep" && !deepPlanEnabled(c.env)) {
+    return c.json({ error: "plan_not_available", plan: "deep" }, 403);
+  }
 
   // 連打防止 + クォータは stream 開始前に判定する(429 をそのまま返せる)
-  const guard = await guardRequest(c, v.value.clientId);
+  const guard = await guardRequest(c, v.value.clientId, v.value.plan);
   if (guard.blocked) return guard.blocked;
 
   const encoder = new TextEncoder();
@@ -309,6 +361,7 @@ app.post("/api/deepen", async (c) => {
   }
   const clientId = typeof b.clientId === "string" ? b.clientId : "";
   if (clientId.length === 0) return c.json({ error: "clientId_required" }, 400);
+  if (!isValidClientId(clientId)) return c.json({ error: "invalid_clientId" }, 400);
   const priorAnswer = typeof b.priorAnswer === "string" ? b.priorAnswer : "";
   if (priorAnswer.length > MAX_PRIOR_LEN) {
     return c.json({ error: "priorAnswer_too_long", max: MAX_PRIOR_LEN }, 400);
@@ -321,7 +374,7 @@ app.post("/api/deepen", async (c) => {
     return c.json({ error: "unknown_or_missing_tension", axis: axisText }, 400);
   }
 
-  const guard = await guardRequest(c, clientId);
+  const guard = await guardRequest(c, clientId, "deepen");
   if (guard.blocked) return guard.blocked;
 
   const budget = AbortSignal.timeout(requestBudgetMs(c.env));
@@ -370,6 +423,7 @@ app.post("/api/resonate", async (c) => {
   }
   const clientId = typeof b.clientId === "string" ? b.clientId : "";
   if (clientId.length === 0) return c.json({ error: "clientId_required" }, 400);
+  if (!isValidClientId(clientId)) return c.json({ error: "invalid_clientId" }, 400);
   const priorAnswer = typeof b.priorAnswer === "string" ? b.priorAnswer : "";
   if (priorAnswer.length > MAX_PRIOR_LEN) {
     return c.json({ error: "priorAnswer_too_long", max: MAX_PRIOR_LEN }, 400);
@@ -379,7 +433,7 @@ app.post("/api/resonate", async (c) => {
   const v = validateResonancePair(b.resonance);
   if (!v.ok) return c.json({ error: v.error }, 400);
 
-  const guard = await guardRequest(c, clientId);
+  const guard = await guardRequest(c, clientId, "resonate");
   if (guard.blocked) return guard.blocked;
 
   const budget = AbortSignal.timeout(requestBudgetMs(c.env));

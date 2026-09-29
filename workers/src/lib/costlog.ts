@@ -61,16 +61,18 @@ export function quotaKey(clientId: string, now: Date): string {
   return `quota:${clientId}:${yyyymm(now)}`;
 }
 
-// §8: quota:{clientId}:{yyyymm} を +1。新しい使用回数を返す。
+// §8: quota:{clientId}:{yyyymm} を units(既定1)だけ加算。新しい使用量を返す。
+// units は原価比例の消費単位(guard.ts の QUOTA_UNITS)。
 export async function incrementQuota(
   kv: KVNamespace,
   clientId: string,
   now: Date,
+  units = 1,
 ): Promise<number> {
   const key = quotaKey(clientId, now);
   const cur = await kv.get(key);
   const parsed = cur ? parseInt(cur, 10) : 0;
-  const next = (Number.isFinite(parsed) ? parsed : 0) + 1;
+  const next = (Number.isFinite(parsed) ? parsed : 0) + units;
   await kv.put(key, String(next), { expirationTtl: QUOTA_TTL_SEC });
   return next;
 }

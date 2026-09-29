@@ -8,6 +8,19 @@ describe("humanizeApiError", () => {
     expect(h.message).toContain("100回");
   });
 
+  it("quota_exceeded で残りが単位に足りないだけならライトを案内", () => {
+    const h = humanizeApiError(429, { error: "quota_exceeded", limit: 100, used: 99, units: 2 });
+    expect(h.message).toContain("ライト");
+  });
+
+  it("IP 制限・提供停止プランは専用メッセージ", () => {
+    const rl = humanizeApiError(429, { error: "ip_rate_limited", retryAfterMs: 60000 });
+    expect(rl.message).toContain("1分");
+    expect(rl.retryAfterMs).toBe(60000);
+    expect(humanizeApiError(429, { error: "ip_quota_exceeded" }).message).toContain("本日");
+    expect(humanizeApiError(403, { error: "plan_not_available" }).message).toContain("ライト");
+  });
+
   it("too_frequent は retryAfterMs を保持", () => {
     const h = humanizeApiError(429, { error: "too_frequent", retryAfterMs: 1200 });
     expect(h.code).toBe("too_frequent");

@@ -16,6 +16,19 @@ FREE_MONTHLY_QUOTA = "100"
 MIN_INTERVAL_MS = "1500"
 # REQUEST_BUDGET_MS: リクエスト全体の実時間上限(超過でモデル呼び出しを中断し 504 timeout)
 REQUEST_BUDGET_MS = "30000"
+# IP_DAILY_QUOTA: 同一IPの1日あたり上限(クォータ単位)。clientId 使い捨て濫用の原価の天井。
+# 携帯回線の CGNAT で複数人が同一IPになり得るため個人の月間枠より大きく取る
+IP_DAILY_QUOTA = "300"
+# DEEP_PLAN_ENABLED: deep プランの提供可否。IAP 導入時に "false" にして Pro 限定へ切替える
+DEEP_PLAN_ENABLED = "true"
+
+# IP 単位のバースト制限(Cloudflare Rate Limiting)。60秒あたり limit 回まで。
+# namespace_id はアカウント内で一意な任意の整数文字列。
+[[unsafe.bindings]]
+name = "IP_RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "1001"
+simple = { limit = 20, period = 60 }
 
 # KVネームスペース。id はプレースホルダー。実際のIDは下記コマンドで作成して差し替える:
 #   wrangler kv namespace create OCTO_KV

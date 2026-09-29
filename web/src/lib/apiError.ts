@@ -12,15 +12,36 @@ export function humanizeApiError(status: number, body: unknown): HumanError {
   const code = typeof b.error === "string" ? b.error : `http_${status}`;
   const retryAfterMs = typeof b.retryAfterMs === "number" ? b.retryAfterMs : undefined;
   const limit = typeof b.limit === "number" ? b.limit : undefined;
+  const used = typeof b.used === "number" ? b.used : undefined;
 
   switch (code) {
     case "quota_exceeded":
+      // 残りはあるが今回の消費単位(ディープ=2)に足りない場合
+      if (limit !== undefined && used !== undefined && used < limit) {
+        return {
+          code,
+          message: "今月の無料枠の残りが足りません。ライトならまだ使えます。",
+        };
+      }
       return {
         code,
         message: limit
           ? `今月の無料回数(${limit}回)を使い切りました。翌月にリセットされます。`
           : "今月の無料回数を使い切りました。翌月にリセットされます。",
       };
+    case "ip_rate_limited":
+      return {
+        code,
+        message: "混み合っています。1分ほどおいてから、もう一度お試しください。",
+        retryAfterMs,
+      };
+    case "ip_quota_exceeded":
+      return {
+        code,
+        message: "本日の利用上限に達しました。明日もう一度お試しください。",
+      };
+    case "plan_not_available":
+      return { code, message: "ディープは現在ご利用いただけません。ライトでお試しください。" };
     case "too_frequent":
       return {
         code,
