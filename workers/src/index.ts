@@ -12,7 +12,8 @@ import {
   releaseSlot,
   checkQuota,
   checkDailyBudget,
-  consumeIpQuota,
+  peekIpQuota,
+  addIpQuota,
   deepPlanEnabled,
   isValidClientId,
   quotaLimit,
@@ -207,79 +208,61 @@ async function guardRequest(
   // Cloudflare 本番では常に付与される。ローカル/テストで無い場合は IP 制限をスキップ
   const ip = c.req.header("CF-Connecting-IP") ?? "";
 
-  // ⓪' 全体の1日予算(課金なし運用の天井)。超過中はモデルを一切呼ばない
-  const daily = await checkDailyBudget(kv, env, new Date(nowMs));
-  if (!daily.allowed) {
-    return {
-      blocked: c.json({ error: "daily_budget_exceeded" }, 503, { "Retry-After": "3600" }),
-      release: noRelease,
-    };
-  }
+  const now = new Date(nowMs);
+  const ipLimit = numEnv(env, "IP_DAILY_QUOTA", DEFAULT_IP_DAILY_QUOTA);
 
-  // ⓪ IP 単位のバースト制限(Rate Limiting バインディング。未設定ならスキップ)
-  if (ip && env.IP_RATE_LIMITER) {
-    const { success } = await env.IP_RATE_LIMITER.limit({ key: ip });
-    if (!success) {
-      return {
-        blocked: c.json({ error: "ip_rate_limited", retryAfterMs: 60_000 }, 429, {
-          "Retry-After": "60",
-        }),
-        release: noRelease,
-      };
-    }
-  }
-
-  // ① 連打防止(同時実行1本 + 最小間隔)
-  const slot = await acquireSlot(kv, clientId, nowMs, {
-    minIntervalMs: numEnv(env, "MIN_INTERVAL_MS", DEFAULT_MIN_INTERVAL_MS),
-    lockMs: DEFAULT_LOCK_MS,
-  });
-  if (!slot.ok) {
-    const retryAfterSec = Math.max(1, Math.ceil(slot.retryAfterMs / 1000));
-    return {
-      blocked: c.json(
-        { error: slot.error, retryAfterMs: slot.retryAfterMs },
-        429,
-        { "Retry-After": String(retryAfterSec) },
-      ),
-      release: noRelease,
-    };
-  }
+  // KV の読み取りは 1 回あたり数百 ms かかるので、独立した判定はすべて並列に行う
+  // (以前は順番に実行しており、最初の応答まで約 2 秒かかっていた)。
+  // 連打防止のスロットは先に確保し、ほかで弾かれたら解放する。
+  const [daily, burst, slot, q, ipq] = await Promise.all([
+    checkDailyBudget(kv, env, now),
+    ip && env.IP_RATE_LIMITER
+      ? env.IP_RATE_LIMITER.limit({ key: ip })
+      : Promise.resolve({ success: true }),
+    acquireSlot(kv, clientId, nowMs, {
+      minIntervalMs: numEnv(env, "MIN_INTERVAL_MS", DEFAULT_MIN_INTERVAL_MS),
+      lockMs: DEFAULT_LOCK_MS,
+    }),
+    checkQuota(kv, clientId, now, quotaLimit(env), units),
+    ip ? peekIpQuota(kv, ip, now, ipLimit) : Promise.resolve(null),
+  ]);
 
   const release = async (): Promise<void> => {
     await releaseSlot(kv, clientId, Date.now());
   };
+  // 弾くときは、確保できていたスロットを解放してから返す
+  const block = async (res: Response): Promise<GuardResult> => {
+    if (slot.ok) await release();
+    return { blocked: res, release: noRelease };
+  };
 
-  // ② クォータ実ブロック(上限超過中は深化・共鳴も含めて弾く)
-  const q = await checkQuota(kv, clientId, new Date(nowMs), quotaLimit(env), units);
-  if (!q.allowed) {
-    await release();
+  // 判定の優先順: 全体予算 → IP バースト → 連打防止 → 月間クォータ → IP の1日上限
+  if (!daily.allowed) {
+    return block(c.json({ error: "daily_budget_exceeded" }, 503, { "Retry-After": "3600" }));
+  }
+  if (!burst.success) {
+    return block(
+      c.json({ error: "ip_rate_limited", retryAfterMs: 60_000 }, 429, { "Retry-After": "60" }),
+    );
+  }
+  if (!slot.ok) {
+    const retryAfterSec = Math.max(1, Math.ceil(slot.retryAfterMs / 1000));
     return {
-      blocked: c.json(
-        { error: "quota_exceeded", limit: q.limit, used: q.used, units },
-        429,
-      ),
+      blocked: c.json({ error: slot.error, retryAfterMs: slot.retryAfterMs }, 429, {
+        "Retry-After": String(retryAfterSec),
+      }),
       release: noRelease,
     };
   }
-
-  // ③ IP 単位の1日上限(受理時点で units を加算)。clientId 使い捨てによる濫用の原価の天井
-  if (ip) {
-    const ipq = await consumeIpQuota(
-      kv,
-      ip,
-      new Date(nowMs),
-      units,
-      numEnv(env, "IP_DAILY_QUOTA", DEFAULT_IP_DAILY_QUOTA),
-    );
-    if (!ipq.allowed) {
-      await release();
-      return {
-        blocked: c.json({ error: "ip_quota_exceeded" }, 429),
-        release: noRelease,
-      };
-    }
+  if (!q.allowed) {
+    return block(c.json({ error: "quota_exceeded", limit: q.limit, used: q.used, units }, 429));
   }
+  if (ipq && !ipq.allowed) {
+    return block(c.json({ error: "ip_quota_exceeded" }, 429));
+  }
+
+  // 受理: IP の1日上限に今回分を加算(受理時点で数える=失敗リクエストも含む)
+  if (ip && ipq) await addIpQuota(kv, ip, now, ipq.used, units);
 
   return { blocked: null, release };
 }

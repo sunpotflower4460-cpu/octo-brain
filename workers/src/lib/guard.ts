@@ -113,6 +113,38 @@ export function ipQuotaKey(ip: string, now: Date): string {
   return `ipq:${ip}:${d}`;
 }
 
+// 読むだけ(ガードの並列判定用)。KV 失敗は安全側(止めない)。
+export async function peekIpQuota(
+  kv: KVNamespace,
+  ip: string,
+  now: Date,
+  limit: number,
+): Promise<{ allowed: boolean; used: number }> {
+  try {
+    const cur = await kv.get(ipQuotaKey(ip, now));
+    const parsed = cur ? parseInt(cur, 10) : 0;
+    const used = Number.isFinite(parsed) ? parsed : 0;
+    return { allowed: used < limit, used };
+  } catch {
+    return { allowed: true, used: 0 };
+  }
+}
+
+// 受理が決まったあとで加算する(peek で読んだ値に足す。KV は結果整合なので厳密でなくてよい)。
+export async function addIpQuota(
+  kv: KVNamespace,
+  ip: string,
+  now: Date,
+  used: number,
+  units: number,
+): Promise<void> {
+  try {
+    await kv.put(ipQuotaKey(ip, now), String(used + units), { expirationTtl: IP_QUOTA_TTL_SEC });
+  } catch {
+    /* 非致命(天井が少し緩むだけ) */
+  }
+}
+
 // 読んで上限判定し、受理なら units を加算して保存する(受理時点で課金=失敗リクエストも数える)。
 // KV は結果整合のため同時多発では多少超過し得る(天井を線形に保つのが目的)。
 // KV 失敗は安全側(ブロックしない)だが、呼び出し側で warnings に載せられるよう ok=false を返す。
