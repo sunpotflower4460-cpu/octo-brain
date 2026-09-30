@@ -97,6 +97,17 @@ export function buildReports(nodes: NodeResult[]): SynthReport[] {
   });
 }
 
+// 共鳴の2腕が、今回実際に使えた(統合に入った)腕かを検証する。
+// 統合脳が起動していないレンズIDを挙げた場合は null(非致命・warnings で可視化)。
+export function validResonance(
+  resonance: Resonance | null,
+  nodes: NodeResult[],
+): Resonance | null {
+  if (!resonance) return null;
+  const usable = new Set(nodes.filter(isUsableNode).map((n) => n.id));
+  return usable.has(resonance.a.lens) && usable.has(resonance.b.lens) ? resonance : null;
+}
+
 // weight<0.4 の opinion だけを含むかどうか(テスト・可視化補助)。
 export function hasPrimarySignal(report: SynthReport): boolean {
   return report.opinions.some((o) => o.weight >= CONFIDENCE_FLOOR);

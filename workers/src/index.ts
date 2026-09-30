@@ -40,21 +40,42 @@ const VALID_PLANS: Plan[] = ["light", "deep"];
 
 const app = new Hono<{ Bindings: Env }>();
 
+// ログ用のエラー詳細。上流の応答本文にキーらしき文字列が混ざっても伏せる。
+function errDetail(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.replace(/\b(sk|key|token)[-_A-Za-z0-9]{8,}/gi, "$1-***");
+}
+
 // CORS: 開発は localhost:5173、Capacitor(iOS/Android WebView)は localhost 系オリジン、
 // 本番オリジンは環境変数 ALLOWED_ORIGIN で指定。
 app.use("/api/*", (c, next) => {
   const allowed = [
-    "http://localhost:5173", // Vite dev
     "capacitor://localhost", // iOS WKWebView (Capacitor 既定オリジン)
     "http://localhost", // Android WebView
     "https://localhost", // 一部の WKWebView 構成
+    // Vite dev はローカル開発時のみ(本番に開発用オリジンを残さない)
+    ...(c.env.ENVIRONMENT === "development" ? ["http://localhost:5173"] : []),
     ...(c.env.ALLOWED_ORIGIN ? [c.env.ALLOWED_ORIGIN] : []),
   ];
   return cors({
-    origin: (origin) => (allowed.includes(origin) ? origin : allowed[0]),
+    // 未許可オリジンには Access-Control-Allow-Origin を付けない(ブラウザが拒否する)
+    origin: (origin) => (allowed.includes(origin) ? origin : null),
     allowMethods: ["GET", "POST", "OPTIONS"],
     allowHeaders: ["Content-Type"],
   })(c, next);
+});
+
+// リクエスト本文の上限。JSON を読む前に Content-Length で弾く(巨大な本文でのメモリ・CPU 消費を防ぐ)。
+// 正規の最大は input 4000 + summary 500 + priorAnswer 8000 字程度(UTF-8 で約40KB)。
+const MAX_BODY_BYTES = 64 * 1024;
+app.use("/api/*", async (c, next) => {
+  if (c.req.method === "POST") {
+    const len = Number(c.req.header("content-length") ?? "0");
+    if (Number.isFinite(len) && len > MAX_BODY_BYTES) {
+      return c.json({ error: "payload_too_large", max: MAX_BODY_BYTES }, 413);
+    }
+  }
+  await next();
 });
 
 // 法務文書・サポート(App Store Connect のプライバシーポリシーURL / サポートURL)。
@@ -73,7 +94,21 @@ for (const [path, page] of Object.entries(LEGAL_PAGES)) {
 }
 
 // ヘルスチェック
-app.get("/api/health", (c) => c.json({ ok: true, version: VERSION }));
+// 設定不備(モデル未設定・APIキー未登録・KV 未接続)を 503 で知らせ、監視で検知できるようにする。
+// キーの値や環境変数名は返さない(役割名のみ)。
+app.get("/api/health", (c) => {
+  const problems: string[] = [];
+  for (const [role, cfg] of Object.entries(MODELS)) {
+    if (cfg.model.includes("SET_ME") || (cfg.baseURL ?? "").includes("SET_ME")) {
+      problems.push(`${role}:model_not_configured`);
+    }
+    const key = c.env[cfg.keyEnv];
+    if (typeof key !== "string" || key.length === 0) problems.push(`${role}:api_key_missing`);
+  }
+  if (!c.env.OCTO_KV) problems.push("kv_missing");
+  if (problems.length > 0) return c.json({ ok: false, version: VERSION, problems }, 503);
+  return c.json({ ok: true, version: VERSION });
+});
 
 // 開発用: モデル疎通確認。ENVIRONMENT=development のときだけ有効(未設定・本番は無効)。
 app.post("/api/dev/ping-model", async (c) => {
@@ -276,13 +311,8 @@ app.post("/api/analyze", async (c) => {
     if (budget.aborted) {
       return c.json({ error: "timeout", budgetMs: requestBudgetMs(c.env) }, 504);
     }
-    return c.json(
-      {
-        error: "pipeline_error",
-        message: err instanceof Error ? err.message : String(err),
-      },
-      500,
-    );
+    console.error("analyze pipeline_error", errDetail(err));
+    return c.json({ error: "pipeline_error" }, 500);
   } finally {
     await guard.release();
   }
@@ -337,10 +367,9 @@ app.post("/api/analyze/stream", async (c) => {
         emit("error", { error: "timeout", message: "timeout" });
         return;
       }
-      emit("error", {
-        error: "pipeline_error",
-        message: err instanceof Error ? err.message : String(err),
-      });
+      // 上流の生エラー(プロバイダーの応答本文等)はクライアントに返さずログにだけ残す
+      console.error("analyze/stream pipeline_error", errDetail(err));
+      emit("error", { error: "pipeline_error" });
     } finally {
       try {
         await writer.close();
@@ -413,13 +442,8 @@ app.post("/api/deepen", async (c) => {
     if (budget.aborted) {
       return c.json({ error: "timeout", budgetMs: requestBudgetMs(c.env) }, 504);
     }
-    return c.json(
-      {
-        error: "deepen_error",
-        message: err instanceof Error ? err.message : String(err),
-      },
-      500,
-    );
+    console.error("deepen deepen_error", errDetail(err));
+    return c.json({ error: "deepen_error" }, 500);
   } finally {
     await guard.release();
   }
@@ -472,13 +496,8 @@ app.post("/api/resonate", async (c) => {
     if (budget.aborted) {
       return c.json({ error: "timeout", budgetMs: requestBudgetMs(c.env) }, 504);
     }
-    return c.json(
-      {
-        error: "resonate_error",
-        message: err instanceof Error ? err.message : String(err),
-      },
-      500,
-    );
+    console.error("resonate resonate_error", errDetail(err));
+    return c.json({ error: "resonate_error" }, 500);
   } finally {
     await guard.release();
   }
