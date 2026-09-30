@@ -73,6 +73,9 @@ export interface SynthResult {
   resonance: Resonance | null;
   // 出力上限で打ち切られた(本文途中切れ・マーカー欠落の可能性)。meta.warnings に載せる
   truncated?: boolean;
+  // 機械可読行(RESONANCE/TENSION)の後ろに本文の続きが書かれていたので本文へ戻した文字数。
+  // 0 なら無し。meta.warnings に載せる(本文そのものはログに出さない)
+  rescuedChars?: number;
 }
 
 // 中央脳に渡すレンズ報告。除外規則を適用済みの形。軸情報を含める(緊張検出のため)。
@@ -197,23 +200,29 @@ export function splitAnswerTensionSummary(
   for (const i of [rIdx, tIdx, sIdx]) {
     if (i !== -1) answerEnd = Math.min(answerEnd, i);
   }
-  const answer = text.slice(0, answerEnd).trim();
+  let answer = text.slice(0, answerEnd).trim();
+  // 機械可読行の後ろに書かれた本文の続き(モデルが順序を崩した場合)。捨てずに本文へ戻す
+  const stray: string[] = [];
 
   // RESONANCE: rIdx から次のマーカー(TENSION/SUMMARY のうち rIdx より後で最小)まで
   let resonance: Resonance | null = null;
   if (rIdx !== -1) {
-    resonance = parseResonance(
-      text.slice(rIdx + RESONANCE_MARKER.length, nextMarkerEnd(text, rIdx, [tIdx, sIdx])),
-    );
+    const seg = text.slice(rIdx + RESONANCE_MARKER.length, nextMarkerEnd(text, rIdx, [tIdx, sIdx]));
+    resonance = parseResonance(seg);
+    stray.push(strayText(seg));
   }
 
   // TENSION: tIdx から次のマーカー(SUMMARY のうち tIdx より後)まで
   let tension: Tension | null = null;
   if (tIdx !== -1) {
-    tension = parseTension(
-      text.slice(tIdx + TENSION_MARKER.length, nextMarkerEnd(text, tIdx, [sIdx])),
-    );
+    const seg = text.slice(tIdx + TENSION_MARKER.length, nextMarkerEnd(text, tIdx, [sIdx]));
+    tension = parseTension(seg);
+    stray.push(strayText(seg));
   }
+
+  const rescued = stray.filter((t) => t.length >= STRAY_MIN_CHARS);
+  if (rescued.length > 0) answer = [answer, ...rescued].join("\n\n");
+  const rescuedChars = rescued.reduce((n, t) => n + t.length, 0);
 
   let summary = oldSummary;
   if (sIdx !== -1) {
@@ -221,7 +230,16 @@ export function splitAnswerTensionSummary(
     if (raw.length > 0) summary = raw.slice(0, SUMMARY_MAX_LEN);
   }
 
-  return { answer, summary, tension, resonance };
+  return { answer, summary, tension, resonance, rescuedChars };
+}
+
+// マーカー行の JSON 以外に残った文字列。短い雑音(句読点・空白)は本文と見なさない。
+const STRAY_MIN_CHARS = 20;
+function strayText(segment: string): string {
+  const start = segment.indexOf("{");
+  const end = segment.lastIndexOf("}");
+  const rest = start !== -1 && end > start ? segment.slice(0, start) + segment.slice(end + 1) : segment;
+  return rest.trim();
 }
 
 // from より後にある候補マーカー位置の最小。無ければ末尾。
