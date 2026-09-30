@@ -23,6 +23,10 @@ export interface NodeView {
   opinions: Opinion[];
   // 部分失敗の可視化。未送信時は null 扱い。
   flag?: NodeFlag;
+  // 世界つきで探求したときだけ: 立った世界・その世界の見方・実際の情報(sure は確からしさ0〜1)
+  world?: string;
+  experience?: string;
+  facts?: { text: string; sure: number }[];
 }
 
 // 最緊張軸 (§5)
@@ -132,6 +136,9 @@ export interface ResonateResponse {
 // 視点の地図: 1つの答えにまとめると消えてしまう、視点の分かれ方
 export interface PerspectiveMap {
   agree: { point: string; lenses: string[] } | null;
-  split: { about: string; a: ResonancePair; b: ResonancePair } | null;
-  lone: { lens: string; claim: string; why: string } | null;
+  // 世界つきのときは、その意見を出した腕が立った世界(world)も付く
+  split: { about: string; a: ResonancePair & { world?: string }; b: ResonancePair & { world?: string } } | null;
+  lone: { lens: string; claim: string; why: string; world?: string } | null;
+  // 世界をまたぐ本質: 遠く離れた3つ以上の世界の経験に共通する原理(世界つきのときだけ)
+  essence?: { point: string; lenses: string[]; worlds: string[] } | null;
 }

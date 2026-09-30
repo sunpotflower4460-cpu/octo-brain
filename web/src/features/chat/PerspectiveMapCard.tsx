@@ -3,12 +3,13 @@ import type { NodeView, PerspectiveMap } from "../../types";
 
 // 視点の地図。1つのモデルが最善の答えに畳むと見えなくなる「視点の分かれ方」を見せる
 // (OctoBrain にしかできない部分: 合意の強さ・割れたところ・ひとつだけの指摘)。
-function Lens({ id }: { id: string }) {
+function Lens({ id, world }: { id: string; world?: string }) {
   const d = displayFor(id);
   return (
     <span className="inline-flex items-center gap-1 text-[12px] font-semibold text-[var(--text-secondary)]">
       <span aria-hidden>{d.emoji}</span>
       {d.uiName}
+      {world && <span className="font-normal text-[var(--text-muted)]">・{world}</span>}
     </span>
   );
 }
@@ -34,11 +35,21 @@ export default function PerspectiveMapCard({
         </p>
       </div>
 
+      {map.essence && (
+        <div className="rounded-[var(--radius-sm)] border border-[var(--cyan)]/40 bg-[var(--cyan)]/10 p-3">
+          <span className="text-[11px] font-semibold text-[var(--cyan)]">世界をまたぐ本質</span>
+          <p className="mt-1.5 text-[14px] leading-relaxed text-[var(--text-primary)]">{map.essence.point}</p>
+          <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--text-muted)]">
+            {map.essence.worlds.join("・")} — 違う世界の経験が、同じところを指していました
+          </p>
+        </div>
+      )}
+
       {map.lone && (
         <div className="rounded-[var(--radius-sm)] border border-[var(--violet)]/40 bg-[var(--violet)]/10 p-3">
           <div className="flex items-center justify-between gap-2">
             <span className="text-[11px] font-semibold text-[var(--violet)]">ひとつの視点だけが指摘</span>
-            <Lens id={map.lone.lens} />
+            <Lens id={map.lone.lens} world={map.lone.world} />
           </div>
           <p className="mt-1.5 text-[14px] leading-relaxed text-[var(--text-primary)]">{map.lone.claim}</p>
           <p className="mt-1 text-[12px] leading-relaxed text-[var(--text-muted)]">{map.lone.why}</p>
@@ -53,7 +64,7 @@ export default function PerspectiveMapCard({
           <div className="mt-1.5 grid grid-cols-1 sm:grid-cols-2 gap-2">
             {[map.split.a, map.split.b].map((p) => (
               <div key={p.lens} className="rounded-[var(--radius-sm)] bg-[var(--surface-2)] p-2.5">
-                <Lens id={p.lens} />
+                <Lens id={p.lens} world={p.world} />
                 <p className="mt-1 text-[13px] leading-relaxed text-[var(--text-primary)]">{p.claim}</p>
               </div>
             ))}

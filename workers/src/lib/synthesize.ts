@@ -18,6 +18,7 @@ import { isUsableNode } from "./runNodes.js";
 import type {
   CostSink,
   Env,
+  Fact,
   NodeResult,
   Opinion,
   PerspectiveMap,
@@ -48,6 +49,7 @@ const SYNTH_PROCEDURE = `あなたはOctoBrainの中央脳。8本の腕 — 4つ
 10. 軸をまたいで、遠いのに響き合う opinion の組がひとつだけあれば ${RESONANCE_MARKER} 行を出す(§共鳴)。基準: (a)異なる軸に属する (b)共通の根が一文で言える (c)組み合わせると新しい選択肢が生まれる。3つすべて満たすときだけ。無理に作らない。該当が無ければ出さない
 - 相談ではなく作業の依頼(計算・文章の作成や改善・要約・アイデア出し・論点整理など)なら、依頼された成果物を先に、完全な形で出す。軸の緊張・次の一歩・問いは、成果物を良くするのに役立つ場合だけ短く添える
 - 依頼と噛み合わない腕の提案(計算に対する「明日やる」など)は、わざわざ取り上げて否定せず、黙って捨てる
+- 報告に world(その腕が立った世界)・experience(その世界の見方・経験)・facts(実際の情報と確からしさ sure)があるときは、同じ問いを違う世界から探求した結果として比べる: (a) 遠い世界どうしの経験が同じ方向を指すなら強い示唆として扱う (b) 経験(その世界の感覚)と facts(情報)が食い違うところは、どちらを信じるべきかをあなたが判断し根拠を示す (c) 違う世界の経験に共通して流れている本質(場面は違っても同じ理)を掴み、答えの芯にする。本質は相談者の状況の言葉で述べ、世界の名前や職業の例えは本文に出さない (d) 相談者の業界の常識では出てこない、遠い世界ならではの見方を答えに活かす。facts は sure が低いもの・具体的な数字を断定せず、確かめ方を添える
 - ひとつの視点だけが指摘していて、他の視点が触れていないが見落とせない点(少数意見)があれば、まとまりを優先して捨てず、本文でも短く触れる
 - 腕の意見に賛成して並べるだけの統合は禁止。少なくとも一か所、腕たちの見立てに対するあなた自身の判断(同意の理由・修正・異論)を根拠とともに示す
 - 腕のIDや「ノード3によると」のような機械的引用は禁止。自然な文章に溶かす
@@ -110,6 +112,10 @@ export interface SynthReport {
   axis: string; // 軸ラベル
   square: Square;
   opinions: Opinion[];
+  // 世界つきで探求したときだけ
+  world?: string;
+  experience?: string;
+  facts?: Fact[];
 }
 
 // §5 除外ルール: flag付き / opinions空 / 非ok は除外。weight<0.4 は本文側で参考扱い。
@@ -122,6 +128,9 @@ export function buildReports(nodes: NodeResult[]): SynthReport[] {
       axis: axisLabel(d.axis),
       square: d.square,
       opinions: n.opinions,
+      ...(n.world ? { world: n.world } : {}),
+      ...(n.experience ? { experience: n.experience } : {}),
+      ...(n.facts && n.facts.length > 0 ? { facts: n.facts } : {}),
     };
   });
 }
@@ -193,7 +202,13 @@ export function buildSynthUserText(
   }
   const dialogues = [...byAxis.entries()].map(([axis, rs]) => ({
     axis,
-    lenses: rs.map((r) => ({ lens: r.lens, opinions: r.opinions })),
+    lenses: rs.map((r) => ({
+      lens: r.lens,
+      ...(r.world ? { world: r.world } : {}),
+      ...(r.experience ? { experience: r.experience } : {}),
+      ...(r.facts ? { facts: r.facts } : {}),
+      opinions: r.opinions,
+    })),
   }));
 
   const parts: string[] = [];
@@ -206,10 +221,25 @@ export function buildSynthUserText(
   if (lang) parts.push(lang);
   const care = careDirective(detectCare(input), ctx.careTurns ?? 0);
   if (care) parts.push(care);
+  const worldsNote = worldsDirective(reports);
+  if (worldsNote) parts.push(worldsNote);
   parts.push(
     `[軸ごとの報告(対角の2腕が張り合う)]\n${JSON.stringify(dialogues)}`,
   );
   return parts.join("\n\n");
+}
+
+// 世界つきで探求したときだけ、統合の芯を「世界をまたぐ本質」に置くよう明示する。
+// (システムプロンプトの長い手順に埋もれて使われなかったため、報告の直前に置く)
+export function worldsDirective(reports: SynthReport[]): string | null {
+  const worlds = [...new Set(reports.filter((r) => r.world && r.experience).map((r) => r.world as string))];
+  if (worlds.length < 3) return null;
+  return `[世界をまたぐ探求]
+今回の各視点は、別々の世界(${worlds.join("、")})に立って、同じ相談を探求した。回答では次を必ず行う:
+1. 違う世界の経験に共通して流れている本質(場面は違っても同じ理)を掴み、答えの芯にする。表面の言葉の一致ではなく原理を探す
+2. 本質は、相談者の状況の言葉で述べる(「開業の前に、撤退する売上の基準と期限を決めておく」のように)。世界の名前や職業の例えは本文に出さない(どの世界から来たかは、画面の地図で別に示される)
+3. その本質を、次の一歩の具体的な行動に落とす。相談者の状況に固有の条件・数字・手順を削ってまで本質を語らない
+4. 世界の経験(感覚)と facts(情報)が食い違うところがあれば、どちらを重く見るかをあなたが判断する`;
 }
 
 function buildFallbackUserText(
@@ -380,7 +410,12 @@ export function validMap(map: PerspectiveMap | null | undefined, nodes: NodeResu
   const agree = map.agree && agreeLenses.length >= 2 ? { ...map.agree, lenses: agreeLenses } : null;
   const split = map.split && usable.has(map.split.a.lens) && usable.has(map.split.b.lens) ? map.split : null;
   const lone = map.lone && usable.has(map.lone.lens) ? map.lone : null;
-  return agree || split || lone ? { agree, split, lone } : null;
+  let essence: PerspectiveMap["essence"] = null;
+  if (map.essence) {
+    const keep = map.essence.lenses.map((l, i) => [l, map.essence!.worlds[i]] as const).filter(([l]) => usable.has(l));
+    if (keep.length >= 3) essence = { point: map.essence.point, lenses: keep.map(([l]) => l), worlds: keep.map(([, w]) => w) };
+  }
+  return agree || split || lone || essence ? { agree, split, lone, essence } : null;
 }
 
 function pairOf(v: unknown): { lens: NodeId; claim: string } | null {

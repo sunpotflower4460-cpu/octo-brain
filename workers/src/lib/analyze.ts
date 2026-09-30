@@ -8,6 +8,7 @@ import { synthesize, synthesizeFallback, validResonance, validMap } from "./synt
 import { verify } from "./verify.js";
 import { polishAnswer } from "./polish.js";
 import { runMapper } from "./mapper.js";
+import { pickWorlds, worldsEnabled } from "./worlds.js";
 import { shouldOfferSupport, detectCare, type CareKind } from "./care.js";
 import { CostCollector, incrementQuotaState, logCost, logFailedCost } from "./costlog.js";
 import { QUOTA_UNITS, quotaStatus, type QuotaStatus } from "./guard.js";
@@ -52,10 +53,33 @@ export interface AnalyzeNodeView {
   opinions: Opinion[];
   // 部分失敗の可視化用。null は正常。API レスポンスに必ず含める。
   flag: NodeResult["flag"];
+  // 世界つきで探求したときだけ(立った世界・その世界の見方・実際の情報)
+  world?: string;
+  experience?: string;
+  facts?: NodeResult["facts"];
 }
 
 export function toNodeView(n: NodeResult): AnalyzeNodeView {
-  return { id: n.id, status: n.status, opinions: n.opinions, flag: n.flag };
+  return {
+    id: n.id,
+    status: n.status,
+    opinions: n.opinions,
+    flag: n.flag,
+    ...(n.world ? { world: n.world } : {}),
+    ...(n.experience ? { experience: n.experience } : {}),
+    ...(n.facts ? { facts: n.facts } : {}),
+  };
+}
+
+// 起動する腕の数(= 選ぶ世界の数)。ドメインに依らずプランで決まる
+export function planWorldCount(plan: Plan): number {
+  return plan === "deep" ? 8 : 4;
+}
+
+// 腕が立つ世界を選ぶか(設定がオンで、寄り添いモードでないとき)。
+// 繊細な相談では、別の世界の話を持ち込まず本人に向き合う
+export function shouldPickWorlds(env: Env, input: string): boolean {
+  return worldsEnabled(env) && detectCare(input) === null;
 }
 
 export interface AnalyzeMeta {
@@ -121,11 +145,13 @@ async function runAnalyzeInner(
 
   // ① Router: ドメイン分類(light の軸選択 + meta 表示)
   // signal を渡し、リクエスト予算超過で router が宙吊りにならないようにする(P5)。
-  const domain = await classifyDomain(req.input, {
-    env: deps.env,
-    collector,
-    signal: deps.signal,
-  });
+  // 腕が立つ世界の選定はドメイン分類と並列に行う(待ち時間を増やさない)
+  const [domain, worlds] = await Promise.all([
+    classifyDomain(req.input, { env: deps.env, collector, signal: deps.signal }),
+    shouldPickWorlds(deps.env, req.input)
+      ? pickWorlds(req.input, planWorldCount(req.plan), { env: deps.env, collector, signal: deps.signal })
+      : Promise.resolve(null),
+  ]);
 
   // ② プラン別レンズ並列 + クォーラム
   const lensIds = planLenses(req.plan, domain);
@@ -135,13 +161,20 @@ async function runAnalyzeInner(
     collector,
     nodeTimeoutMs: deps.nodeTimeoutMs,
     signal: deps.signal,
+    worlds,
   });
 
   // ③ 掘る統合 or フォールバック
   // 視点の地図は統合脳と並列に作る(待ち時間を増やさない)。寄り添いモードでは作らない
-  const mapPromise = detectCare(req.input)
+  // 世界の選定が「迷いや判断を含まない相談」と判断した(空配列)ときも地図は作らない
+  const mapPromise = detectCare(req.input) || (worlds !== null && worlds.length === 0)
     ? Promise.resolve(null)
-    : runMapper(req.input, run.nodes, { env: deps.env, collector, signal: deps.signal });
+    : runMapper(req.input, run.nodes, {
+        env: deps.env,
+        collector,
+        signal: deps.signal,
+        onFailure: (reason) => warnings.push(`map_failed: ${reason}`),
+      });
   const synth = run.fallback
     ? await synthesizeFallback(req.input, req.summary, {
         env: deps.env,

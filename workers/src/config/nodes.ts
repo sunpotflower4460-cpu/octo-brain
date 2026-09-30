@@ -131,3 +131,16 @@ const NODE_OUTPUT_FORMAT = `出力JSON形式: {"opinions":[{"claim":"60字以内
 export function nodeSystemPrompt(def: Lens): string {
   return `${COMMON_NODE_SYSTEM}\n\nタスク: ${def.verb}\n\n${NODE_OUTPUT_FORMAT}`;
 }
+
+// 世界つきの探求(相談ごとに選んだ「違う世界」に立って、同じ問いを探求する)。
+// 世界の名前と日常は user メッセージの [あなたの世界] で渡す(システムプロンプトはレンズごとに静的)。
+const WORLD_NODE_RULES = `この相談を、[あなたの世界] に生きる人の目で探求する。
+- experience: その世界に独自の知恵・慣習・判断基準のうち、この相談に通じるものを、具体的な場面とともに書き、相談者の状況に置き換える(100字以内)。相談者の業界の人でも言える一般論(「年齢より経験が大事」など)は書かない。架空の個人の体験談(「私は〜した」)は作らず、「〜の世界では」のように、その世界でよくあることとして書く
+- facts: この相談の判断に直接関わる実際の情報(制度・相場・統計・よく知られた傾向など、相談者が調べれば確かめられるもの)を最大2件(各60字以内)。あなたのタスクの観点に関わるものを選ぶ。「人による」「状況で変わる」のような中身のない一般論は書かない。sure は確からしさ(0〜1)。うろ覚えの数字は書かないか、sure を低くする
+- opinions: タスクの観点から相談者への意見を出す。少なくとも1つは、その世界の知恵を相談者の状況に置き換えた意見にする`;
+
+const WORLD_NODE_OUTPUT_FORMAT = `出力JSON形式: {"experience":"100字以内","facts":[{"text":"60字以内","sure":0.0〜1.0}],"opinions":[{"claim":"60字以内","weight":0.0〜1.0,"why":"60字以内"}],"flag":null | "insufficient_input" | "off_topic"}`;
+
+export function nodeWorldSystemPrompt(def: Lens): string {
+  return `${COMMON_NODE_SYSTEM}\n\n${WORLD_NODE_RULES}\n\nタスク: ${def.verb}\n\n${WORLD_NODE_OUTPUT_FORMAT}`;
+}

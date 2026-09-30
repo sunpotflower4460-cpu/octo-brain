@@ -3,19 +3,23 @@
 // JSONパース失敗は parse_error として棄却(リトライしない)。クォーラム判定を行う。
 
 import { callModel } from "./callModel.js";
-import { nodeDef, nodeSystemPrompt, type NodeId } from "../config/nodes.js";
+import { nodeDef, nodeSystemPrompt, nodeWorldSystemPrompt, type NodeId } from "../config/nodes.js";
 import { pickNodeModel } from "../config/models.js";
 import type {
   CostSink,
   Env,
+  Fact,
   NodeFlag,
   NodeResult,
   Opinion,
+  World,
 } from "../types.js";
 
 const NODE_TIMEOUT_MS = 8000;
 const MAX_OPINIONS = 3;
 const MAX_FIELD_LEN = 60;
+const EXPERIENCE_MAX_LEN = 120;
+const MAX_FACTS = 2;
 
 export interface RunNodesOpts {
   env: Env;
@@ -25,6 +29,8 @@ export interface RunNodesOpts {
   nodeTimeoutMs?: number;
   // 各レンズが完了した順に呼ばれる(SSEの node イベント逐次送出用)。
   onNodeComplete?: (node: NodeResult) => void;
+  // 腕ごとの世界(lensIds と同じ順)。無い腕は従来どおり世界なしで探求する
+  worlds?: World[] | null;
 }
 
 export interface RunNodesResult {
@@ -47,7 +53,10 @@ export async function runNodes(
   const userText = buildNodeUserText(input, summary);
 
   const settled = await Promise.allSettled(
-    lensIds.map((id, i) => runOne(id, i, userText, timeoutMs, opts)),
+    lensIds.map((id, i) => {
+      const world = opts.worlds?.[i] ?? null;
+      return runOne(id, i, world ? withWorld(userText, world) : userText, world, timeoutMs, opts);
+    }),
   );
 
   const nodes: NodeResult[] = settled.map((s, i) =>
@@ -71,6 +80,7 @@ async function runOne(
   id: NodeId,
   index: number,
   userText: string,
+  world: World | null,
   timeoutMs: number,
   opts: RunNodesOpts,
 ): Promise<NodeResult> {
@@ -84,7 +94,7 @@ async function runOne(
     const res = await callModel(
       "node",
       [
-        { role: "system", content: nodeSystemPrompt(def) },
+        { role: "system", content: world ? nodeWorldSystemPrompt(def) : nodeSystemPrompt(def) },
         { role: "user", content: userText },
       ],
       {
@@ -94,12 +104,12 @@ async function runOne(
         modelOverride: pickNodeModel(index, opts.env),
       },
     );
-    const parsed = parseNodeResponse(id, res.text);
+    const parsed = parseNodeResponse(id, res.text, world);
     opts.onNodeComplete?.(parsed);
     return parsed;
   } catch {
     const status = ctrl.signal.aborted ? "timeout" : "error";
-    const failed: NodeResult = { id, status, opinions: [], flag: null };
+    const failed: NodeResult = { id, status, opinions: [], flag: null, ...(world ? { world: world.name } : {}) };
     opts.onNodeComplete?.(failed);
     return failed;
   } finally {
@@ -118,18 +128,48 @@ export function buildNodeUserText(input: string, summary: string): string {
   return parts.join("\n\n");
 }
 
+// 世界つきの腕に渡す user メッセージ(世界の名前と日常を先頭に置く)
+export function withWorld(userText: string, world: World): string {
+  const daily = world.daily ? `\n(その世界で日々向き合っていること: ${world.daily})` : "";
+  return `[あなたの世界]\n${world.name}${daily}\n\n${userText}`;
+}
+
 // 生パース → 失敗なら {...} 抽出を1回 → 失敗なら parse_error (§2)。
-export function parseNodeResponse(id: NodeId, raw: string): NodeResult {
+// 世界つきなら experience / facts も取り出す(欠けても opinions があれば使う)。
+export function parseNodeResponse(id: NodeId, raw: string, world: World | null = null): NodeResult {
   const obj = tryParseObject(raw);
+  const w = world ? { world: world.name } : {};
   if (obj === null) {
-    return { id, status: "parse_error", opinions: [], flag: null };
+    return { id, status: "parse_error", opinions: [], flag: null, ...w };
   }
-  return {
+  const result: NodeResult = {
     id,
     status: "ok",
     opinions: normalizeOpinions(obj.opinions),
     flag: normalizeFlag(obj.flag),
+    ...w,
   };
+  if (world) {
+    const experience = asString(obj.experience).trim().slice(0, EXPERIENCE_MAX_LEN);
+    if (experience) result.experience = experience;
+    const facts = normalizeFacts(obj.facts);
+    if (facts.length > 0) result.facts = facts;
+  }
+  return result;
+}
+
+function normalizeFacts(v: unknown): Fact[] {
+  if (!Array.isArray(v)) return [];
+  const out: Fact[] = [];
+  for (const el of v) {
+    if (el === null || typeof el !== "object" || Array.isArray(el)) continue;
+    const o = el as Record<string, unknown>;
+    const text = truncate(asString(o.text));
+    if (text.length === 0) continue;
+    out.push({ text, sure: clampWeight(o.sure) });
+    if (out.length >= MAX_FACTS) break;
+  }
+  return out;
 }
 
 function tryParseObject(raw: string): Record<string, unknown> | null {

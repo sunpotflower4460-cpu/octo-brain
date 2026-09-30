@@ -14,8 +14,9 @@ import { CostCollector, incrementQuotaState, logCost, logFailedCost } from "./co
 import { QUOTA_UNITS, quotaStatus, type QuotaStatus } from "./guard.js";
 import { detectBoundary, boundaryPrefix, withBoundaryPrefix } from "./boundary.js";
 import { planLenses, planQuorum } from "../config/nodes.js";
-import { toNodeView, type AnalyzeInput, type AnalyzeDeps, type AnalyzeMeta } from "./analyze.js";
-import type { Domain } from "../types.js";
+import { pickWorlds } from "./worlds.js";
+import { planWorldCount, shouldPickWorlds, toNodeView, type AnalyzeInput, type AnalyzeDeps, type AnalyzeMeta } from "./analyze.js";
+import type { Domain, World } from "../types.js";
 
 export type SSEPhase = "routing" | "nodes" | "synth" | "verify";
 
@@ -55,23 +56,28 @@ async function runAnalyzeStreamInner(
 
   // ① Router
   emit("phase", { phase: "routing" satisfies SSEPhase });
-  const domain: Domain = await classifyDomain(req.input, {
-    env: deps.env,
-    collector,
-    signal: deps.signal,
-  });
+  // 腕が立つ世界の選定はドメイン分類と並列に行う(待ち時間を増やさない)
+  const [domain, worlds]: [Domain, World[] | null] = await Promise.all([
+    classifyDomain(req.input, { env: deps.env, collector, signal: deps.signal }),
+    shouldPickWorlds(deps.env, req.input)
+      ? pickWorlds(req.input, planWorldCount(req.plan), { env: deps.env, collector, signal: deps.signal })
+      : Promise.resolve(null),
+  ]);
 
   // ② プラン別レンズ並列(完了順に node イベント)
   // nodes フェーズで起動レンズIDを同送し、UIが真に起動した腕だけを working 表示できるようにする。
   const lensIds = planLenses(req.plan, domain);
   const required = planQuorum(req.plan);
-  emit("phase", { phase: "nodes" satisfies SSEPhase, nodeIds: lensIds });
+  // 世界つきなら、腕ごとの世界の名前も同送する(探求中から「どの世界から見ているか」を見せる)
+  const worldNames = worlds && worlds.length > 0 ? lensIds.map((_, i) => worlds[i]?.name ?? null) : undefined;
+  emit("phase", { phase: "nodes" satisfies SSEPhase, nodeIds: lensIds, ...(worldNames ? { worlds: worldNames } : {}) });
   const run = await runNodes(lensIds, required, req.input, req.summary, {
     env: deps.env,
     collector,
     nodeTimeoutMs: deps.nodeTimeoutMs,
     signal: deps.signal,
     onNodeComplete: (n) => emit("node", toNodeView(n)),
+    worlds,
   });
 
   // ③ 掘る統合(token 逐次) or フォールバック
@@ -86,9 +92,15 @@ async function runAnalyzeStreamInner(
   const boundary = detectBoundary(req.input);
   if (boundary) emit("token", { t: `${boundaryPrefix(boundary)}\n\n` });
   // 視点の地図は統合脳と並列に作る(待ち時間を増やさない)。寄り添いモードでは作らない
-  const mapPromise = detectCare(req.input)
+  // 世界の選定が「迷いや判断を含まない相談」と判断した(空配列)ときも地図は作らない
+  const mapPromise = detectCare(req.input) || (worlds !== null && worlds.length === 0)
     ? Promise.resolve(null)
-    : runMapper(req.input, run.nodes, { env: deps.env, collector, signal: deps.signal });
+    : runMapper(req.input, run.nodes, {
+        env: deps.env,
+        collector,
+        signal: deps.signal,
+        onFailure: (reason) => warnings.push(`map_failed: ${reason}`),
+      });
   const synth = run.fallback
     ? await synthesizeFallbackStream(
         req.input,
