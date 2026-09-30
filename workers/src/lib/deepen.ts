@@ -206,7 +206,7 @@ async function reconsider(
       { role: "system", content: reconsiderSystem(selfDef.verb) },
       { role: "user", content: parts.join("\n\n") },
     ],
-    { env, collector, modelOverride: pickNodeModel(index), signal },
+    { env, collector, modelOverride: pickNodeModel(index, env), signal },
   );
   return parseReconsidered(res.text);
 }

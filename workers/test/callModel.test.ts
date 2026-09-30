@@ -367,3 +367,30 @@ describe("出力上限での打ち切り検出(truncated)", () => {
     expect(info).toEqual({ truncated: true });
   });
 });
+
+describe("maxTokensParam(OpenAI 推論モデル)", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("max_completion_tokens を指定すると max_tokens は送らない", async () => {
+    let sent: Record<string, unknown> = {};
+    mockFetch((_url, init) => {
+      sent = JSON.parse(String(init.body)) as Record<string, unknown>;
+      return jsonResponse({
+        choices: [{ message: { content: "ok" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      });
+    });
+    await callModel("node", messages, {
+      env,
+      retryBaseMs: 0,
+      modelOverride: {
+        ...openaiCfg,
+        maxTokensParam: "max_completion_tokens",
+        extraBody: { reasoning_effort: "none" },
+      },
+    });
+    expect(sent.max_completion_tokens).toBe(250);
+    expect("max_tokens" in sent).toBe(false);
+    expect(sent.reasoning_effort).toBe("none");
+  });
+});

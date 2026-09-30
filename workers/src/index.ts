@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { callModel } from "./lib/callModel.js";
 import type { ModelRole } from "./config/models.js";
-import { MODELS } from "./config/models.js";
+import { MODEL_ROLES, activeProfile, modelFor } from "./config/models.js";
 import { runAnalyze } from "./lib/analyze.js";
 import { runAnalyzeStream } from "./lib/analyzeStream.js";
 import { runDeepen, resolveAxis } from "./lib/deepen.js";
@@ -11,6 +11,7 @@ import {
   acquireSlot,
   releaseSlot,
   checkQuota,
+  checkDailyBudget,
   consumeIpQuota,
   deepPlanEnabled,
   isValidClientId,
@@ -98,7 +99,9 @@ for (const [path, page] of Object.entries(LEGAL_PAGES)) {
 // キーの値や環境変数名は返さない(役割名のみ)。
 app.get("/api/health", (c) => {
   const problems: string[] = [];
-  for (const [role, cfg] of Object.entries(MODELS)) {
+  const profile = activeProfile(c.env);
+  for (const role of MODEL_ROLES) {
+    const cfg = modelFor(role, c.env);
     if (cfg.model.includes("SET_ME") || (cfg.baseURL ?? "").includes("SET_ME")) {
       problems.push(`${role}:model_not_configured`);
     }
@@ -106,8 +109,8 @@ app.get("/api/health", (c) => {
     if (typeof key !== "string" || key.length === 0) problems.push(`${role}:api_key_missing`);
   }
   if (!c.env.OCTO_KV) problems.push("kv_missing");
-  if (problems.length > 0) return c.json({ ok: false, version: VERSION, problems }, 503);
-  return c.json({ ok: true, version: VERSION });
+  if (problems.length > 0) return c.json({ ok: false, version: VERSION, profile, problems }, 503);
+  return c.json({ ok: true, version: VERSION, profile });
 });
 
 // 開発用: モデル疎通確認。ENVIRONMENT=development のときだけ有効(未設定・本番は無効)。
@@ -124,11 +127,8 @@ app.post("/api/dev/ping-model", async (c) => {
   }
 
   const role = body.role;
-  if (!role || !(role in MODELS)) {
-    return c.json(
-      { error: "invalid_role", allowed: Object.keys(MODELS) },
-      400,
-    );
+  if (!role || !MODEL_ROLES.includes(role as ModelRole)) {
+    return c.json({ error: "invalid_role", allowed: MODEL_ROLES }, 400);
   }
 
   const messages: ChatMessage[] = [
@@ -206,6 +206,15 @@ async function guardRequest(
   const units = QUOTA_UNITS[kind];
   // Cloudflare 本番では常に付与される。ローカル/テストで無い場合は IP 制限をスキップ
   const ip = c.req.header("CF-Connecting-IP") ?? "";
+
+  // ⓪' 全体の1日予算(課金なし運用の天井)。超過中はモデルを一切呼ばない
+  const daily = await checkDailyBudget(kv, env, new Date(nowMs));
+  if (!daily.allowed) {
+    return {
+      blocked: c.json({ error: "daily_budget_exceeded" }, 503, { "Retry-After": "3600" }),
+      release: noRelease,
+    };
+  }
 
   // ⓪ IP 単位のバースト制限(Rate Limiting バインディング。未設定ならスキップ)
   if (ip && env.IP_RATE_LIMITER) {

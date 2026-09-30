@@ -171,3 +171,42 @@ describe("IP 単位の制限(clientId 使い捨て対策)", () => {
     expect(store.get(ipQuotaKey("198.51.100.1", now))).toBe("3");
   });
 });
+
+describe("全体の1日予算(課金なし運用のサーキットブレーカー)", () => {
+  it("当日の原価が DAILY_BUDGET_USD に達していたら 503 daily_budget_exceeded", async () => {
+    const { spendKey } = await import("../src/lib/costlog.js");
+    const { kv } = kvMock({ [spendKey(new Date())]: String(3_000_000) }); // $3.00
+    const res = await app.request(
+      req("/api/analyze", { input: "a", clientId: "c-budget" }),
+      {},
+      { OCTO_KV: kv, DAILY_BUDGET_USD: "3" },
+    );
+    expect(res.status).toBe(503);
+    expect(((await res.json()) as { error: string }).error).toBe("daily_budget_exceeded");
+  });
+
+  it("予算内なら通常どおり(ガードの次段へ進む)", async () => {
+    const { spendKey } = await import("../src/lib/costlog.js");
+    const { kv } = kvMock({ [spendKey(new Date())]: String(2_999_999) });
+    const limiter = { limit: async () => ({ success: false }) } as unknown as RateLimit;
+    const res = await app.request(
+      req("/api/analyze", { input: "a", clientId: "c-budget2" }, "203.0.113.20"),
+      {},
+      { OCTO_KV: kv, DAILY_BUDGET_USD: "3", IP_RATE_LIMITER: limiter },
+    );
+    // 予算は通過し、次の IP バースト制限で止まる
+    expect(((await res.json()) as { error: string }).error).toBe("ip_rate_limited");
+  });
+
+  it("logCost が当日の原価を積み上げる", async () => {
+    const { CostCollector, logCost, readDailySpendUsd } = await import("../src/lib/costlog.js");
+    const { kv } = kvMock();
+    const now = new Date();
+    for (const cost of [0.0012, 0.0008]) {
+      const col = new CostCollector();
+      col.record({ role: "synth", model: "m", inTok: 1, outTok: 1, estCost: cost, ms: 1, estimated: false });
+      await logCost(kv, `r-${cost}`, col, { quorum: "4/4", fallback: false }, now);
+    }
+    expect(await readDailySpendUsd(kv, now)).toBeCloseTo(0.002, 6);
+  });
+});

@@ -10,7 +10,7 @@
 // ============================================================================
 
 import {
-  MODELS,
+  modelFor,
   estimateCost,
   type ModelConfig,
   type ModelRole,
@@ -44,7 +44,7 @@ export async function callModel(
   messages: ChatMessage[],
   opts: CallModelOpts,
 ): Promise<ModelCallResult> {
-  const cfg = opts.modelOverride ?? MODELS[role];
+  const cfg = opts.modelOverride ?? modelFor(role, opts.env);
   const maxTokens = opts.maxTokens ?? cfg.maxTokens;
   const apiKey = readKey(opts.env, cfg.keyEnv);
 
@@ -134,7 +134,7 @@ function buildOpenAICompat(
     ...cfg.extraBody,
     model: cfg.model,
     messages: messages.map((m) => ({ role: m.role, content: m.content })),
-    max_tokens: maxTokens,
+    [cfg.maxTokensParam ?? "max_tokens"]: maxTokens,
   };
   return {
     url,

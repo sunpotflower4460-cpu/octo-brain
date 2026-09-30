@@ -1,7 +1,7 @@
 // 共鳴(掛け算)= 結合から生む (docs/phases/P1.6_resonance.md §4)。
 // 一見遠い2つの opinion を掛け合わせ、第三の選択肢を生む(bisociation)。
 // AIが提案したペアでも、ユーザーが自分で選んだ2つでも、同じ形で受ける。
-// 1コール(synth=Pro)。全コールは callModel 経由・costlog を通す(絶対ルール5)。
+// 1コール(synth)。全コールは callModel 経由・costlog を通す(絶対ルール5)。
 
 import { callModel } from "./callModel.js";
 import { isNodeId } from "../config/nodes.js";

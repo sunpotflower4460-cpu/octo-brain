@@ -3,7 +3,7 @@
 // クォータの残量チェックは「読むだけ」で安全側(多少の超過は許容しユーザーを不当に止めない)。
 
 import type { Env } from "../types.js";
-import { quotaKey } from "./costlog.js";
+import { quotaKey, readDailySpendUsd } from "./costlog.js";
 
 export const DEFAULT_FREE_MONTHLY_QUOTA = 100;
 export const DEFAULT_MIN_INTERVAL_MS = 1500;
@@ -34,7 +34,7 @@ export const QUOTA_UNITS: Record<QuotaKind, number> = {
   resonate: 1,
 };
 
-// deep プランの提供可否(IAP 導入時に "false" にして Pro 限定へ切り替える)。既定は有効。
+// deep プランの提供可否。課金なし運用での原価調整スイッチ("false" で deep を 403 にする)。既定は有効。
 export function deepPlanEnabled(env: Env): boolean {
   return env.DEEP_PLAN_ENABLED !== "false";
 }
@@ -79,6 +79,32 @@ export async function checkQuota(
   }
   // 今回の消費分(units)を足して上限以内なら受理。deep(2単位)は残り1では通さない。
   return { used, limit, allowed: used + units <= limit };
+}
+
+// ---- 全体の1日予算(課金なし運用のサーキットブレーカー) ----
+// 収益が無いので、原価の上限は運営が決めた1日の予算で物理的に止める。
+// DAILY_BUDGET_USD(wrangler vars、既定 $3/日 ≒ 月 $90)を超えたら当日は新規受付を止める(UTC 0時に復帰)。
+export const DEFAULT_DAILY_BUDGET_USD = 3;
+
+export function dailyBudgetUsd(env: Env): number {
+  const raw = env.DAILY_BUDGET_USD;
+  const n = typeof raw === "string" ? parseFloat(raw) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_DAILY_BUDGET_USD;
+}
+
+export async function checkDailyBudget(
+  kv: KVNamespace,
+  env: Env,
+  now: Date,
+): Promise<{ allowed: boolean; spentUsd: number; budgetUsd: number }> {
+  const budgetUsd = dailyBudgetUsd(env);
+  let spentUsd = 0;
+  try {
+    spentUsd = await readDailySpendUsd(kv, now);
+  } catch {
+    // KV 読み取り失敗は安全側(止めない)。個人・IP の上限は別に効いている
+  }
+  return { allowed: spentUsd < budgetUsd, spentUsd, budgetUsd };
 }
 
 // ---- IP 単位の1日上限 ----

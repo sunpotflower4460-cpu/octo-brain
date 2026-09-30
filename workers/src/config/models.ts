@@ -25,7 +25,11 @@ export interface ModelConfig {
   // (例: DeepSeek の思考モード無効化 { thinking: { type: "disabled" } })。
   // model / messages / max_tokens / stream は上書きできない(抽象化レイヤー側が優先)。
   extraBody?: Record<string, unknown>;
+  // 出力上限のパラメータ名。OpenAI の推論モデル(GPT-6 系)は max_completion_tokens のみ受け付ける
+  maxTokensParam?: "max_tokens" | "max_completion_tokens";
 }
+
+export const MODEL_ROLES: ModelRole[] = ["router", "node", "synth", "verifier"];
 
 // DeepSeek(OpenAI互換)。価格は公式 https://api-docs.deepseek.com/quick_start/pricing の
 // ピーク時単価(キャッシュミス入力 / 出力)で見積もる=原価ログは安全側(オフピークは約半額)。
@@ -54,23 +58,70 @@ const PRO = {
   extraBody: NO_THINKING,
 } as const satisfies Omit<ModelConfig, "maxTokens">;
 
-// 役割ごとの既定モデル。docs/00_architecture.md §6 の max_tokens 設計に合わせる。
-// 天井は統合脳が決める(README 原則2)ため synth だけ上位モデル、他は軽量モデル。
-export const MODELS: Record<ModelRole, ModelConfig> = {
-  router: { ...FLASH, maxTokens: 10 },
-  node: { ...FLASH, maxTokens: 250 },
-  // 日本語はほぼ1字≒1トークン。本文700字目安+機械可読ブロックが切れない余裕を持たせる
-  synth: { ...PRO, maxTokens: 2000 },
-  // 修正時は回答全文を出し直すため synth と同じ上限(通常は "pass" のみで安い)
-  verifier: { ...FLASH, maxTokens: 2000 },
+// OpenAI GPT-6 Luna。公式 https://developers.openai.com/api/docs/pricing の標準(short context)単価。
+// 推論モデルで既定の推論は medium。推論トークンは出力として課金され max_completion_tokens も
+// 食うため、全役割で reasoning_effort="none" にする(役割はどれも「狭い作業」で推論不要)。
+const LUNA = {
+  provider: "openai-compat",
+  baseURL: "https://api.openai.com/v1",
+  model: "gpt-6-luna",
+  keyEnv: "OPENAI_API_KEY",
+  pricePerMTokIn: 0.1,
+  pricePerMTokOut: 0.5,
+  extraBody: { reasoning_effort: "none" },
+  maxTokensParam: "max_completion_tokens",
+} as const satisfies Omit<ModelConfig, "maxTokens">;
+
+// 役割ごとの max_tokens。docs/00_architecture.md §6 の設計に合わせる。
+// synth は日本語ほぼ1字≒1トークンで本文700字目安+機械可読ブロックが切れない余裕、
+// verifier は修正時に全文を出し直すため synth と同じ上限(通常は "pass" のみで安い)。
+const MAX_TOKENS: Record<ModelRole, number> = {
+  router: 10,
+  node: 250,
+  synth: 2000,
+  verifier: 2000,
 };
+
+export type ModelProfile = "deepseek" | "luna";
+
+// 構成(プロファイル)。天井は統合脳が決める(README 原則2)。
+// - deepseek: 軽量 flash + 統合だけ上位の v4-pro
+// - luna: 全役割 GPT-6 Luna(実測トークンで原価は deepseek ピーク比 約1/6)
+export const PROFILES: Record<ModelProfile, Record<ModelRole, ModelConfig>> = {
+  deepseek: {
+    router: { ...FLASH, maxTokens: MAX_TOKENS.router },
+    node: { ...FLASH, maxTokens: MAX_TOKENS.node },
+    synth: { ...PRO, maxTokens: MAX_TOKENS.synth },
+    verifier: { ...FLASH, maxTokens: MAX_TOKENS.verifier },
+  },
+  luna: {
+    router: { ...LUNA, maxTokens: MAX_TOKENS.router },
+    node: { ...LUNA, maxTokens: MAX_TOKENS.node },
+    synth: { ...LUNA, maxTokens: MAX_TOKENS.synth },
+    verifier: { ...LUNA, maxTokens: MAX_TOKENS.verifier },
+  },
+};
+
+// 使う構成を決める。MODEL_PROFILE(wrangler vars)で明示できる。未指定なら
+// OPENAI_API_KEY が登録されていれば luna(安い)、無ければ deepseek。
+// キーを登録するだけで切り替わり、外せば元に戻る(コード変更・再デプロイ不要)。
+export function activeProfile(env: Record<string, unknown>): ModelProfile {
+  const explicit = env.MODEL_PROFILE;
+  if (explicit === "deepseek" || explicit === "luna") return explicit;
+  const openaiKey = env.OPENAI_API_KEY;
+  return typeof openaiKey === "string" && openaiKey.length > 0 ? "luna" : "deepseek";
+}
+
+export function modelFor(role: ModelRole, env: Record<string, unknown>): ModelConfig {
+  return PROFILES[activeProfile(env)][role];
+}
 
 // ノード多様化プール (P4)。node役割に複数社の軽量モデルを持たせ、pickNodeModel が
 // ノードindexで振り分ける。異なる学習分布のモデルを混ぜると出力の相関が下がり、
 // 8視点の「多角性」が上がる (MoA研究の知見)。
 //
 // 【P4 実測後に確定する / この環境では未設定】
-//   実キー・実価格が要るためプールは空のまま(空なら MODELS.node のみを使う=挙動不変)。
+//   実キー・実価格が要るためプールは空のまま(空なら構成の node のみを使う=挙動不変)。
 //   実測(bench の多角性スコア変化)を見て 2〜3 社を選び、下の例のように設定する:
 //
 //   export const NODE_MODEL_POOL: ModelConfig[] = [
@@ -85,9 +136,9 @@ export const MODELS: Record<ModelRole, ModelConfig> = {
 //   ※ 弱いモデルを混ぜると総合が下がることがある(MoA知見)。1社追加→再ベンチのループで確認。
 export const NODE_MODEL_POOL: ModelConfig[] = [];
 
-// index に応じて node 用モデルを選ぶ。プールが空なら既定の node モデル。
-export function pickNodeModel(index: number): ModelConfig {
-  if (NODE_MODEL_POOL.length === 0) return MODELS.node;
+// index に応じて node 用モデルを選ぶ。プールが空なら現在の構成の node モデル。
+export function pickNodeModel(index: number, env: Record<string, unknown>): ModelConfig {
+  if (NODE_MODEL_POOL.length === 0) return modelFor("node", env);
   return NODE_MODEL_POOL[index % NODE_MODEL_POOL.length];
 }
 

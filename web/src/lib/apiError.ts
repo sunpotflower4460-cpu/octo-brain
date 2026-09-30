@@ -40,6 +40,11 @@ export function humanizeApiError(status: number, body: unknown): HumanError {
         code,
         message: "本日の利用上限に達しました。明日もう一度お試しください。",
       };
+    case "daily_budget_exceeded":
+      return {
+        code,
+        message: "本日の無料提供分がいっぱいになりました。明日またお試しください。",
+      };
     case "plan_not_available":
       return { code, message: "ディープは現在ご利用いただけません。ライトでお試しください。" };
     case "too_frequent":
