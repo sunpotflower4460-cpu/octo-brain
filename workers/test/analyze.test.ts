@@ -212,4 +212,34 @@ describe("runAnalyze パイプライン (P1.5)", () => {
     expect(res.meta.verified).toBe("pass");
     expect(res.meta.warnings).toContain("verifier_rewrite_rejected: length_mismatch");
   });
+
+  it("途中で失敗しても、課金済みの呼び出しを analyze_failed として原価ログに残す(H8)", async () => {
+    const base = dispatch("general", OK_JSON, SYNTH_TENSION) as (
+      role: ModelRole,
+      m: ChatMessage[],
+    ) => Promise<ModelCallResult>;
+    mockedCall.mockImplementation(((role: ModelRole, m: ChatMessage[]) =>
+      role === "synth" ? Promise.reject(new Error("boom")) : base(role, m)) as unknown as typeof callModel);
+    // 実 callModel と同様に呼び出しごとに collector へ記録させる
+    const inner = mockedCall.getMockImplementation()!;
+    mockedCall.mockImplementation(((role: ModelRole, m: ChatMessage[], opts: { collector?: { record: (r: unknown) => void } }) =>
+      inner(role, m, opts as never).then((r) => {
+        opts.collector?.record({ role, model: "m", inTok: 1, outTok: 1, estCost: 0.001, ms: 1, estimated: false });
+        return r;
+      })) as unknown as typeof callModel);
+    const { env, store } = makeEnv();
+    await expect(
+      runAnalyze(
+        { input: "x", summary: "", plan: "light", clientId: "c1" },
+        { env, now: new Date(), requestId: "req-fail" },
+      ),
+    ).rejects.toThrow("boom");
+    const key = [...store.keys()].find((k) => k.startsWith("cost:") && k.endsWith(":req-fail"));
+    expect(key).toBeTruthy();
+    const rec = JSON.parse(store.get(key!)!) as { kind: string; calls: unknown[] };
+    expect(rec.kind).toBe("analyze_failed");
+    expect(rec.calls.length).toBe(5); // router 1 + node 4(synth は失敗で未記録)
+    // 失敗時はクォータを消費しない
+    expect([...store.keys()].some((k) => k.startsWith("quota:"))).toBe(false);
+  });
 });

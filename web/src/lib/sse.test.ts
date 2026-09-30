@@ -45,3 +45,24 @@ describe("SSEParser", () => {
     expect(evts[0]).toEqual({ event: "message", data: "ok" });
   });
 });
+
+describe("SSEParser 改行の揺れ・終端", () => {
+  it("CRLF 区切りでもイベントを取り出す", () => {
+    const p = new SSEParser();
+    const evs = p.push("event: token\r\ndata: {\"t\":\"a\"}\r\n\r\n");
+    expect(evs).toEqual([{ event: "token", data: '{"t":"a"}' }]);
+  });
+
+  it("CRLF がチャンク境界で分かれても取りこぼさない", () => {
+    const p = new SSEParser();
+    expect(p.push("event: done\r\ndata: {}\r")).toEqual([]);
+    expect(p.push("\n\r\n")).toEqual([{ event: "done", data: "{}" }]);
+  });
+
+  it("flush で空行なしの最後のイベントを取り出す", () => {
+    const p = new SSEParser();
+    expect(p.push("event: done\ndata: {}")).toEqual([]);
+    expect(p.flush()).toEqual([{ event: "done", data: "{}" }]);
+    expect(p.flush()).toEqual([]);
+  });
+});

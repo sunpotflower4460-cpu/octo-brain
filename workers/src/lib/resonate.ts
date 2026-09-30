@@ -5,7 +5,7 @@
 
 import { callModel } from "./callModel.js";
 import { isNodeId } from "../config/nodes.js";
-import { CostCollector, incrementQuota, logCost } from "./costlog.js";
+import { CostCollector, incrementQuota, logCost, logFailedCost } from "./costlog.js";
 import { QUOTA_UNITS } from "./guard.js";
 import type { Env, ResonancePair } from "../types.js";
 
@@ -82,8 +82,29 @@ export async function runResonate(
   req: ResonateInput,
   deps: ResonateDeps,
 ): Promise<ResonateResponse> {
-  const started = deps.now.getTime();
   const collector = new CostCollector();
+  try {
+    return await runResonateInner(req, deps, collector);
+  } catch (err) {
+    // 途中までの課金済み呼び出しを原価ログに残す(監査 H8)
+    await logFailedCost(
+      deps.env.OCTO_KV,
+      deps.requestId,
+      collector,
+      "resonate",
+      deps.now.getTime(),
+      deps.now,
+    );
+    throw err;
+  }
+}
+
+async function runResonateInner(
+  req: ResonateInput,
+  deps: ResonateDeps,
+  collector: CostCollector,
+): Promise<ResonateResponse> {
+  const started = deps.now.getTime();
 
   const parts: string[] = [];
   if (req.summary.trim().length > 0) parts.push(`[会話要約]\n${req.summary.trim()}`);

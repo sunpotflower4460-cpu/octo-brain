@@ -11,7 +11,8 @@ export class SSEParser {
 
   // チャンク文字列を投入し、完成したイベントの配列を返す (未完成分は保持)。
   push(chunk: string): SSEEvent[] {
-    this.buffer += chunk;
+    // CRLF / CR 改行(プロキシ経由等)を LF に正規化してから区切る
+    this.buffer += chunk.replace(/\r\n?/g, "\n");
     const events: SSEEvent[] = [];
     let sep = this.buffer.indexOf("\n\n");
     while (sep !== -1) {
@@ -22,6 +23,15 @@ export class SSEParser {
       sep = this.buffer.indexOf("\n\n");
     }
     return events;
+  }
+
+  // ストリーム終端で、空行で閉じられていない最後のイベントを取り出す。
+  flush(): SSEEvent[] {
+    const rest = this.buffer;
+    this.buffer = "";
+    if (rest.trim().length === 0) return [];
+    const evt = parseBlock(rest);
+    return evt ? [evt] : [];
   }
 }
 

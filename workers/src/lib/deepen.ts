@@ -15,7 +15,7 @@ import {
   type NodeId,
 } from "../config/nodes.js";
 import { pickNodeModel } from "../config/models.js";
-import { CostCollector, incrementQuota, logCost } from "./costlog.js";
+import { CostCollector, incrementQuota, logCost, logFailedCost } from "./costlog.js";
 import { QUOTA_UNITS } from "./guard.js";
 import type { Env, NodeResult, Opinion } from "../types.js";
 
@@ -76,12 +76,33 @@ export async function runDeepen(
   req: DeepenInput,
   deps: DeepenDeps,
 ): Promise<DeepenResponse> {
+  const collector = new CostCollector();
+  try {
+    return await runDeepenInner(req, deps, collector);
+  } catch (err) {
+    // 途中までの課金済み呼び出しを原価ログに残す(監査 H8)
+    await logFailedCost(
+      deps.env.OCTO_KV,
+      deps.requestId,
+      collector,
+      "deepen",
+      deps.now.getTime(),
+      deps.now,
+    );
+    throw err;
+  }
+}
+
+async function runDeepenInner(
+  req: DeepenInput,
+  deps: DeepenDeps,
+  collector: CostCollector,
+): Promise<DeepenResponse> {
   const started = deps.now.getTime();
   const axis = axisByLabel(req.tension.axis);
   if (!axis) {
     throw new Error(`unknown_axis: ${req.tension.axis}`);
   }
-  const collector = new CostCollector();
   const [idA, idB] = axis.lenses;
 
   // 1. 対角2腕の元レポートを取得(この入力に対する各腕の意見)

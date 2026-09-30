@@ -54,6 +54,7 @@ export default function Conversation({
                 content={msg.content}
                 streaming={msg.streaming}
                 verifying={msg.trace?.phase === "verify"}
+                cancelled={msg.trace?.cancelled === true}
                 meta={msg.meta}
                 onRetry={
                   msg.sourceInput ? () => handlers.onRetry(msg) : undefined

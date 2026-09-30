@@ -64,12 +64,25 @@ export async function analyzeStream(
   const decoder = new TextDecoder();
   const parser = new SSEParser();
 
+  // done / error のどちらかが届いたか。届かずに閉じたら途中切断として扱う
+  let terminated = false;
+  const run = (evt: { event: string; data: string }) => {
+    if (terminated) return;
+    if (evt.event === "done" || evt.event === "error") terminated = true;
+    dispatch(evt, handlers);
+  };
+
   try {
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
       const chunk = decoder.decode(value, { stream: true });
-      for (const evt of parser.push(chunk)) dispatch(evt, handlers);
+      for (const evt of parser.push(chunk)) run(evt);
+    }
+    for (const evt of parser.push(decoder.decode())) run(evt);
+    for (const evt of parser.flush()) run(evt);
+    if (!terminated) {
+      handlers.onError?.(networkErrorMessage(), { code: "network" });
     }
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") {

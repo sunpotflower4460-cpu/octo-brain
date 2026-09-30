@@ -50,6 +50,9 @@ function uuid(): string {
   return `c-${Math.random().toString(36).slice(2)}-${Date.now()}`;
 }
 
+// fetch の中断(停止ボタン・会話切替)か
+const isAbort = (err: unknown) => err instanceof DOMException && err.name === "AbortError";
+
 const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 const wallNow = () => Date.now();
 
@@ -112,6 +115,24 @@ export default function App() {
     setMessages((prev) =>
       prev.map((m) => (m.id === id && m.trace ? { ...m, trace: fn(m.trace) } : m)),
     );
+
+  // 進行中の処理(分析ストリーム・深化・共鳴)を取り消す。会話切替・削除の前に呼ぶ。
+  // ストリーム中の回答は「中断」に確定させ、messagesRef にも同期反映して
+  // 直後の flushPersist が途中状態(streaming:true)を保存しないようにする。
+  const cancelInFlight = () => {
+    if (!abortRef.current) return;
+    abortedByUserRef.current = true;
+    abortRef.current.abort();
+    abortRef.current = null;
+    const settle = (list: ChatMessage[]) =>
+      list.map((m) =>
+        m.streaming
+          ? { ...m, streaming: false, trace: m.trace ? traceOnCancel(m.trace, now()) : m.trace }
+          : m,
+      );
+    messagesRef.current = settle(messagesRef.current);
+    setMessages(settle);
+  };
 
   // ---- 永続化ヘルパー ----
   const refreshMetas = useCallback(async () => {
@@ -217,6 +238,7 @@ export default function App() {
   };
 
   const newConversation = async () => {
+    cancelInFlight();
     await flushPersist();
     setMessages([]);
     setInput("");
@@ -233,6 +255,7 @@ export default function App() {
       setDrawerOpen(false);
       return;
     }
+    cancelInFlight();
     await flushPersist();
     const s = storageRef.current;
     if (!s) return;
@@ -265,6 +288,7 @@ export default function App() {
   const removeConversation = async (id: string) => {
     const s = storageRef.current;
     if (!s) return;
+    if (id === currentConvIdRef.current) cancelInFlight();
     await s.remove(id);
     if (id === currentConvIdRef.current) {
       setMessages([]);
@@ -279,6 +303,7 @@ export default function App() {
   };
 
   const deleteAllData = async () => {
+    cancelInFlight();
     const s = storageRef.current;
     if (s) await s.clear();
     setConvMetas([]);
@@ -317,6 +342,8 @@ export default function App() {
     const ac = new AbortController();
     abortRef.current = ac;
     abortedByUserRef.current = false;
+    // 送信元の会話。完了時に別会話へ切り替わっていたら要約を書き込まない
+    const convId = currentConvIdRef.current;
 
     // token バッファ + rAF フラッシュ (§6.6)
     let buffer = "";
@@ -348,7 +375,7 @@ export default function App() {
         },
         onDone: (payload) => {
           flush();
-          summaryRef.current = payload.summary;
+          if (currentConvIdRef.current === convId) summaryRef.current = payload.summary;
           patch(assistantId, {
             content: payload.answer,
             nodes: payload.nodes,
@@ -377,7 +404,7 @@ export default function App() {
       },
       ac.signal,
     );
-    abortRef.current = null;
+    if (abortRef.current === ac) abortRef.current = null;
     busyRef.current = false;
     setBusy(false);
   };
@@ -418,18 +445,28 @@ export default function App() {
     busyRef.current = true;
     setBusy(true);
     setDeepeningId(msg.id);
+    const ac = new AbortController();
+    abortRef.current = ac;
+    abortedByUserRef.current = false;
     try {
-      const res = await deepen({
-        input: msg.sourceInput,
-        summary: summaryRef.current || undefined,
-        tension: { axis: tension.axis },
-        priorAnswer: msg.content,
-        clientId: clientIdRef.current,
-      });
+      const res = await deepen(
+        {
+          input: msg.sourceInput,
+          summary: summaryRef.current || undefined,
+          tension: { axis: tension.axis },
+          priorAnswer: msg.content,
+          clientId: clientIdRef.current,
+        },
+        ac.signal,
+      );
       patch(msg.id, { deepened: { answer: res.answer, axis: res.meta.axis }, deepenError: undefined });
     } catch (err) {
-      patch(msg.id, { deepenError: err instanceof Error ? err.message : String(err) });
+      // 停止ボタン・会話切替による取り消しはエラー表示しない
+      if (!isAbort(err)) {
+        patch(msg.id, { deepenError: err instanceof Error ? err.message : String(err) });
+      }
     } finally {
+      if (abortRef.current === ac) abortRef.current = null;
       setDeepeningId(null);
       setCoreAction(null);
       busyRef.current = false;
@@ -448,14 +485,20 @@ export default function App() {
     setBusy(true);
     setResonatingId(msg.id);
     const label = `${displayFor(pair.a.lens).uiName} × ${displayFor(pair.b.lens).uiName}`;
+    const ac = new AbortController();
+    abortRef.current = ac;
+    abortedByUserRef.current = false;
     try {
-      const res = await resonate({
-        input: msg.sourceInput,
-        summary: summaryRef.current || undefined,
-        resonance: pair,
-        priorAnswer: msg.content,
-        clientId: clientIdRef.current,
-      });
+      const res = await resonate(
+        {
+          input: msg.sourceInput,
+          summary: summaryRef.current || undefined,
+          resonance: pair,
+          priorAnswer: msg.content,
+          clientId: clientIdRef.current,
+        },
+        ac.signal,
+      );
       setMessages((prev) =>
         prev.map((m) =>
           m.id === msg.id
@@ -464,8 +507,11 @@ export default function App() {
         ),
       );
     } catch (err) {
-      patch(msg.id, { resonateError: err instanceof Error ? err.message : String(err) });
+      if (!isAbort(err)) {
+        patch(msg.id, { resonateError: err instanceof Error ? err.message : String(err) });
+      }
     } finally {
+      if (abortRef.current === ac) abortRef.current = null;
       setResonatingId(null);
       setCoreAction(null);
       busyRef.current = false;
