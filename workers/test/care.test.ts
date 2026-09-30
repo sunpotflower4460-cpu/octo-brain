@@ -66,3 +66,14 @@ describe("疲れ・限界の短い吐露(venting)", () => {
     expect(shouldOfferSupport("venting", 3, "話を聞かせて")).toBe(false);
   });
 });
+
+describe("直前の回答を統合脳に渡す(前の回答の中身を指す依頼への対応)", () => {
+  it("prevAnswer があれば参照用として入り、無ければ入らない", () => {
+    const withPrev = buildSynthUserText("3つ目のをベースに英語版も作って", "", [], {
+      prevAnswer: "1. A\n2. B\n3. 布団に入ったら、あとは自分をオフにするだけ。",
+    });
+    expect(withPrev).toContain("[直前のあなたの回答");
+    expect(withPrev).toContain("自分をオフにするだけ");
+    expect(buildSynthUserText("転職すべき?", "", [])).not.toContain("[直前のあなたの回答");
+  });
+});

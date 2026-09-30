@@ -77,6 +77,9 @@ export interface SynthOpts {
   env: Env;
   // この会話で寄り添いモードになった回数(寄り添い方の指示に使う)
   careTurns?: number;
+  // 直前の回答(参照用)。「3つ目の案を英語に」など前の回答の中身を指す依頼に応えるため、
+  // 統合脳にだけ渡す(8本の腕には渡さない=入力の複製を増やさない)
+  prevAnswer?: string;
   collector?: CostSink;
   signal?: AbortSignal;
 }
@@ -138,7 +141,7 @@ export async function synthesize(
   opts: SynthOpts,
 ): Promise<SynthResult> {
   const reports = buildReports(nodes);
-  const userText = buildSynthUserText(input, summary, reports, opts.careTurns);
+  const userText = buildSynthUserText(input, summary, reports, opts);
   const res = await callModel(
     "synth",
     [
@@ -155,7 +158,7 @@ export async function synthesizeFallback(
   summary: string,
   opts: SynthOpts,
 ): Promise<SynthResult> {
-  const userText = buildFallbackUserText(input, summary, opts.careTurns);
+  const userText = buildFallbackUserText(input, summary, opts);
   const res = await callModel(
     "synth",
     [
@@ -172,7 +175,7 @@ export function buildSynthUserText(
   input: string,
   summary: string,
   reports: SynthReport[],
-  careTurns = 0,
+  ctx: { careTurns?: number; prevAnswer?: string } = {},
 ): string {
   const byAxis = new Map<string, SynthReport[]>();
   for (const r of reports) {
@@ -187,10 +190,13 @@ export function buildSynthUserText(
 
   const parts: string[] = [];
   if (summary.trim().length > 0) parts.push(`[会話要約]\n${summary.trim()}`);
+  if (ctx.prevAnswer && ctx.prevAnswer.trim().length > 0) {
+    parts.push(`[直前のあなたの回答(参照用。今回の入力が「3つ目の案」「さっきの」などで指しているときに使う)]\n${ctx.prevAnswer.trim()}`);
+  }
   parts.push(`[今回の入力]\n${input}`);
   const lang = languageDirective(input);
   if (lang) parts.push(lang);
-  const care = careDirective(detectCare(input), careTurns);
+  const care = careDirective(detectCare(input), ctx.careTurns ?? 0);
   if (care) parts.push(care);
   parts.push(
     `[軸ごとの報告(対角の2腕が張り合う)]\n${JSON.stringify(dialogues)}`,
@@ -198,13 +204,20 @@ export function buildSynthUserText(
   return parts.join("\n\n");
 }
 
-function buildFallbackUserText(input: string, summary: string, careTurns = 0): string {
+function buildFallbackUserText(
+  input: string,
+  summary: string,
+  ctx: { careTurns?: number; prevAnswer?: string } = {},
+): string {
   const parts: string[] = [];
   if (summary.trim().length > 0) parts.push(`[会話要約]\n${summary.trim()}`);
+  if (ctx.prevAnswer && ctx.prevAnswer.trim().length > 0) {
+    parts.push(`[直前のあなたの回答(参照用。今回の入力が「3つ目の案」「さっきの」などで指しているときに使う)]\n${ctx.prevAnswer.trim()}`);
+  }
   parts.push(`[今回の入力]\n${input}`);
   const lang = languageDirective(input);
   if (lang) parts.push(lang);
-  const care = careDirective(detectCare(input), careTurns);
+  const care = careDirective(detectCare(input), ctx.careTurns ?? 0);
   if (care) parts.push(care);
   return parts.join("\n\n");
 }
@@ -386,7 +399,7 @@ export async function synthesizeStream(
   onToken: (t: string) => void,
 ): Promise<SynthResult> {
   const reports = buildReports(nodes);
-  const userText = buildSynthUserText(input, summary, reports, opts.careTurns);
+  const userText = buildSynthUserText(input, summary, reports, opts);
   return streamAndCut(SYNTH_SYSTEM, userText, summary, opts, onToken);
 }
 
@@ -396,7 +409,7 @@ export async function synthesizeFallbackStream(
   opts: SynthOpts,
   onToken: (t: string) => void,
 ): Promise<SynthResult> {
-  const userText = buildFallbackUserText(input, summary, opts.careTurns);
+  const userText = buildFallbackUserText(input, summary, opts);
   return streamAndCut(FALLBACK_SYSTEM, userText, summary, opts, onToken);
 }
 

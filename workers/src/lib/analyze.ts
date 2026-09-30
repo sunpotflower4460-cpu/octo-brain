@@ -29,6 +29,8 @@ export interface AnalyzeInput {
   clientId: string;
   // この会話で寄り添いモードになった回数(窓口を出すかの判断に使う)
   careTurns?: number;
+  // 直前の回答(統合脳だけが参照する)
+  prevAnswer?: string;
 }
 
 export interface AnalyzeDeps {
@@ -137,13 +139,13 @@ async function runAnalyzeInner(
         env: deps.env,
         collector,
         signal: deps.signal,
-        careTurns: req.careTurns,
+        careTurns: req.careTurns, prevAnswer: req.prevAnswer,
       })
     : await synthesize(req.input, req.summary, run.nodes, {
         env: deps.env,
         collector,
         signal: deps.signal,
-        careTurns: req.careTurns,
+        careTurns: req.careTurns, prevAnswer: req.prevAnswer,
       });
 
   // ④ 検証(表面のみ最小修正)

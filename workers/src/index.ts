@@ -40,6 +40,7 @@ const VERSION = "0.0.0-p5";
 const MAX_INPUT_LEN = 4000;
 const MAX_SUMMARY_LEN = 500;
 const MAX_PRIOR_LEN = 8000;
+const MAX_PREV_ANSWER_LEN = 2000;
 const VALID_PLANS: Plan[] = ["light", "deep"];
 
 const app = new Hono<{ Bindings: Env }>();
@@ -164,7 +165,14 @@ app.post("/api/dev/ping-model", async (c) => {
 type ValidatedBody =
   | {
       ok: true;
-      value: { input: string; summary: string; plan: Plan; clientId: string; careTurns: number };
+      value: {
+        input: string;
+        summary: string;
+        plan: Plan;
+        clientId: string;
+        careTurns: number;
+        prevAnswer: string;
+      };
     }
   | { ok: false; error: string; extra?: Record<string, unknown> };
 
@@ -191,7 +199,9 @@ export function validateAnalyzeBody(body: unknown): ValidatedBody {
   // この会話で寄り添いモードになった回数(アプリが数えて送る)。窓口を控えめに出す判断にだけ使う
   const rawTurns = typeof b.careTurns === "number" ? Math.floor(b.careTurns) : 0;
   const careTurns = Math.min(100, Math.max(0, Number.isFinite(rawTurns) ? rawTurns : 0));
-  return { ok: true, value: { input, summary, plan, clientId, careTurns } };
+  // 直前の回答(統合脳だけが参照)。長すぎる分は末尾を切る(原価の上限を保つ)
+  const prevAnswer = typeof b.prevAnswer === "string" ? b.prevAnswer.slice(0, MAX_PREV_ANSWER_LEN) : "";
+  return { ok: true, value: { input, summary, plan, clientId, careTurns, prevAnswer } };
 }
 
 // ---- P5 堅牢化ガード: IP制限 + 連打防止 + クォータ実ブロック ----

@@ -81,6 +81,8 @@ export interface AnalyzeRequestBody {
   clientId: string;
   // この会話で寄り添いモードになった回数(軽い吐露に毎回窓口を出さないため)
   careTurns?: number;
+  // 直前の回答(「3つ目の案を英語に」など前の回答を指す依頼のため。統合脳だけが参照)
+  prevAnswer?: string;
 }
 
 // 深化 (P1.5 §6)
