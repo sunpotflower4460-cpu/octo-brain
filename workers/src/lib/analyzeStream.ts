@@ -101,6 +101,7 @@ async function runAnalyzeStreamInner(
   });
   // 部分的な劣化は握りつぶさず meta.warnings で可視化する
   if (synth.truncated) warnings.push("synth_truncated");
+  if (synth.rescuedChars) warnings.push(`synth_text_after_marker: ${synth.rescuedChars}`);
   if (verified.rejected) warnings.push(`verifier_rewrite_rejected: ${verified.rejected}`);
   // 共鳴は実際に使えた腕同士でなければ出さない(起動していない腕を Living Core で光らせない)
   const resonance = validResonance(synth.resonance, run.nodes);

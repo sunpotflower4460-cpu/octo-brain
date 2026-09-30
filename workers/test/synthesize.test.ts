@@ -151,3 +151,29 @@ describe("RESONANCE 抽出 (P1.6)", () => {
     expect(splitAnswerTensionSummary(noRoot, "").resonance).toBeNull();
   });
 });
+
+describe("機械可読行の後ろに書かれた本文の救出", () => {
+  it("TENSION 行の後ろに本文の続きがあれば本文へ戻し、文字数を返す", async () => {
+    const { splitAnswerTensionSummary } = await import("../src/lib/synthesize.js");
+    const text =
+      "前半の本文。\n---TENSION--- {\"axis\":\"魂の軸\",\"reason\":\"r\"}\n" +
+      "次の一歩として、今夜30分だけ転勤先の求人を調べてみてください。\n最後に、あなたは何年単位で選びたいですか。\n" +
+      "---SUMMARY---\n要約";
+    const r = splitAnswerTensionSummary(text, "");
+    expect(r.tension?.axis).toBe("魂の軸");
+    expect(r.answer).toContain("前半の本文。");
+    expect(r.answer).toContain("次の一歩として");
+    expect(r.summary).toBe("要約");
+    expect(r.rescuedChars).toBeGreaterThan(20);
+  });
+
+  it("JSON だけなら何も足さない", async () => {
+    const { splitAnswerTensionSummary } = await import("../src/lib/synthesize.js");
+    const r = splitAnswerTensionSummary(
+      '本文\n---TENSION--- {"axis":"心の軸","reason":"r"}\n---SUMMARY---\n要約',
+      "",
+    );
+    expect(r.answer).toBe("本文");
+    expect(r.rescuedChars).toBe(0);
+  });
+});
