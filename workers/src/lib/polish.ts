@@ -24,7 +24,11 @@ export function polishAnswer(
   let text = answer;
 
   // 異体の記号・不可視文字
-  const cleaned = text.replace(/؟/g, "？").replace(/[​-‍﻿]/g, "");
+  // ゼロ幅文字・アラビア語の疑問符、末尾に紛れる数学記号(⟂ など、Luna がまれに出す)を直す
+  const cleaned = text
+    .replace(/\u061F/g, "？")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/\s*[\u27C0-\u27EF\u2980-\u29FF]+\s*$/u, "");
   if (cleaned !== text) {
     fixes.push("odd_chars_fixed");
     text = cleaned;
