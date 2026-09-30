@@ -338,7 +338,9 @@ export class DepthStreamCutter {
       this.emitted = idx;
       return out;
     }
-    const safeEnd = this.full.length - DepthStreamCutter.HOLD;
+    let safeEnd = this.full.length - DepthStreamCutter.HOLD;
+    // 絵文字などのサロゲートペアを2回の送信に分けない(途中で「?」が一瞬出るのを防ぐ)
+    if (isHighSurrogate(this.full.charCodeAt(safeEnd - 1))) safeEnd -= 1;
     if (safeEnd <= this.emitted) return "";
     const out = this.full.slice(this.emitted, safeEnd);
     this.emitted = safeEnd;
@@ -357,6 +359,10 @@ export class DepthStreamCutter {
   result(oldSummary: string): SynthResult {
     return splitAnswerTensionSummary(this.full, oldSummary);
   }
+}
+
+function isHighSurrogate(code: number): boolean {
+  return code >= 0xd800 && code <= 0xdbff;
 }
 
 function firstMarkerIndex(s: string): number {
