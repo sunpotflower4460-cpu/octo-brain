@@ -46,7 +46,8 @@ import SettingsPanel from "./features/settings/SettingsPanel";
 import ConsentSheet from "./features/consent/ConsentSheet";
 import StatusAnnouncer from "./components/StatusAnnouncer";
 import type { ChatMessage } from "./features/chat/message";
-import type { NodeView, Plan, ResonancePair, SSEPhase } from "./types";
+import type { NodeView, Plan, QuotaStatus, ResonancePair, SSEPhase } from "./types";
+import { quotaNote } from "./lib/quota";
 
 function uuid(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
@@ -82,6 +83,8 @@ export default function App() {
   // 外部AI送信の同意 (5.1.2(i))。未同意で送信しようとしたら同意シートを出し、承諾後に送る
   const [aiConsent, setAiConsentState] = useState(false);
   const [pendingSend, setPendingSend] = useState<string | null>(null);
+  // 利用状況(最新の回答で返ってきた値)。残りが少ないときに入力欄の上へ出す
+  const [quota, setQuota] = useState<QuotaStatus | null>(null);
   const online = useOnlineStatus();
   // lg(1024px)以上だけ左カラムの Living Core を出す。スマホでは描画ループごとマウントしない
   const isDesktop = useMediaQuery("(min-width: 1024px)");
@@ -401,6 +404,7 @@ export default function App() {
         onDone: (payload) => {
           flush();
           if (currentConvIdRef.current === convId) summaryRef.current = payload.summary;
+          if (payload.meta.quota) setQuota(payload.meta.quota);
           patch(assistantId, {
             content: payload.answer,
             nodes: payload.nodes,
@@ -495,6 +499,7 @@ export default function App() {
         ac.signal,
       );
       patch(msg.id, { deepened: { answer: res.answer, axis: res.meta.axis }, deepenError: undefined });
+      if (res.meta.quota) setQuota(res.meta.quota);
     } catch (err) {
       // 停止ボタン・会話切替による取り消しはエラー表示しない
       if (!isAbort(err)) {
@@ -545,6 +550,7 @@ export default function App() {
             : m,
         ),
       );
+      if (res.meta.quota) setQuota(res.meta.quota);
     } catch (err) {
       if (!isAbort(err)) {
         patch(msg.id, { resonateError: err instanceof Error ? err.message : String(err) });
@@ -775,7 +781,8 @@ export default function App() {
             busy={busy}
             plan={plan}
             onPlanChange={setPlan}
-          />
+            quotaNote={quotaNote(quota)}
+            />
         </div>
       </main>
 
@@ -803,6 +810,7 @@ export default function App() {
           onDeleteData={() => void deleteAllData()}
           aiConsent={aiConsent}
           onRevokeConsent={revokeConsent}
+          quota={quota}
           onClose={() => setSettingsOpen(false)}
         />
       )}

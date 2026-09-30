@@ -9,8 +9,8 @@ import { synthesizeStream, synthesizeFallbackStream, validResonance } from "./sy
 import { verify } from "./verify.js";
 import { LeadingQuoteFilter, polishAnswer } from "./polish.js";
 import { shouldOfferSupport, detectCare } from "./care.js";
-import { CostCollector, incrementQuota, logCost, logFailedCost } from "./costlog.js";
-import { QUOTA_UNITS } from "./guard.js";
+import { CostCollector, incrementQuotaState, logCost, logFailedCost } from "./costlog.js";
+import { QUOTA_UNITS, quotaStatus, type QuotaStatus } from "./guard.js";
 import { detectBoundary, boundaryPrefix, withBoundaryPrefix } from "./boundary.js";
 import { planLenses, planQuorum } from "../config/nodes.js";
 import { toNodeView, type AnalyzeInput, type AnalyzeDeps, type AnalyzeMeta } from "./analyze.js";
@@ -125,6 +125,7 @@ async function runAnalyzeStreamInner(
 
   // ⑤ 原価ログ + クォータ
   let quotaUsed: number | null = null;
+  let quota: QuotaStatus | null = null;
   try {
     await logCost(
       deps.env.OCTO_KV,
@@ -137,12 +138,14 @@ async function runAnalyzeStreamInner(
     warnings.push(`cost_log_failed: ${errMsg(err)}`);
   }
   try {
-    quotaUsed = await incrementQuota(
+    const qv = await incrementQuotaState(
       deps.env.OCTO_KV,
       req.clientId,
       deps.now,
       QUOTA_UNITS[req.plan],
     );
+    quotaUsed = qv.month;
+    quota = quotaStatus(deps.env, qv);
   } catch (err) {
     warnings.push(`quota_increment_failed: ${errMsg(err)}`);
   }
@@ -159,6 +162,7 @@ async function runAnalyzeStreamInner(
     totalCost: collector.totalCost(),
     ms: Date.now() - started,
     quotaUsed,
+    ...(quota ? { quota } : {}),
     boundary,
   };
   if (warnings.length > 0) meta.warnings = warnings;

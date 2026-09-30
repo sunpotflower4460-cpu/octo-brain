@@ -16,8 +16,8 @@ import {
   type NodeId,
 } from "../config/nodes.js";
 import { pickNodeModel } from "../config/models.js";
-import { CostCollector, incrementQuota, logCost, logFailedCost } from "./costlog.js";
-import { QUOTA_UNITS } from "./guard.js";
+import { CostCollector, incrementQuotaState, logCost, logFailedCost } from "./costlog.js";
+import { QUOTA_UNITS, quotaStatus, type QuotaStatus } from "./guard.js";
 import type { Env, NodeResult, Opinion } from "../types.js";
 
 export interface DeepenInput {
@@ -44,6 +44,7 @@ export interface DeepenResponse {
     ms: number;
     // 今月の使用量(クォータ単位)。KV 失敗時は null(warnings に理由)
     quotaUsed: number | null;
+    quota?: QuotaStatus;
     warnings?: string[];
   };
 }
@@ -138,13 +139,16 @@ async function runDeepenInner(
     warnings.push(`cost_log_failed: ${err instanceof Error ? err.message : String(err)}`);
   }
   let quotaUsed: number | null = null;
+  let quota: QuotaStatus | null = null;
   try {
-    quotaUsed = await incrementQuota(
+    const qv = await incrementQuotaState(
       deps.env.OCTO_KV,
       req.clientId,
       deps.now,
       QUOTA_UNITS.deepen,
     );
+    quotaUsed = qv.month;
+    quota = quotaStatus(deps.env, qv);
   } catch (err) {
     warnings.push(`quota_increment_failed: ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -157,6 +161,7 @@ async function runDeepenInner(
       totalCost: collector.totalCost(),
       ms: Date.now() - started,
       quotaUsed,
+      ...(quota ? { quota } : {}),
       ...(warnings.length > 0 ? { warnings } : {}),
     },
   };
