@@ -127,7 +127,9 @@ export default function InsightCard({
 
       {!streaming && content.length > 0 && (
         <p className="mt-2 text-[11px] text-[var(--text-muted)] leading-snug">
-          AI による生成です。誤りを含むことがあり、医療・法律・お金などの専門的な助言の代わりにはなりません。
+          {meta?.care
+            ? "AI による応答です。"
+            : "AI による生成です。誤りを含むことがあり、医療・法律・お金などの専門的な助言の代わりにはなりません。"}
         </p>
       )}
 

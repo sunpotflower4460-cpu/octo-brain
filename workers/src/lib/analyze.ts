@@ -7,6 +7,7 @@ import { runNodes } from "./runNodes.js";
 import { synthesize, synthesizeFallback, validResonance } from "./synthesize.js";
 import { verify } from "./verify.js";
 import { polishAnswer } from "./polish.js";
+import { detectCare, type CareKind } from "./care.js";
 import { CostCollector, incrementQuota, logCost, logFailedCost } from "./costlog.js";
 import { QUOTA_UNITS } from "./guard.js";
 import { detectBoundary, withBoundaryPrefix, type BoundaryKind } from "./boundary.js";
@@ -54,6 +55,8 @@ export function toNodeView(n: NodeResult): AnalyzeNodeView {
 export interface AnalyzeMeta {
   // 予算逼迫のため軽いモード(ライト・推論なし)で答えた
   economy?: boolean;
+  // 繊細な相談として寄り添いモードで答えた(アプリは視点一覧・深掘りを隠し、窓口を回答の後に添える)
+  care?: CareKind;
   plan: Plan;
   domain: Domain;
   quorum: string;
@@ -152,7 +155,8 @@ async function runAnalyzeInner(
   // ④' 境界の正直さ: 苦手系(計算/最新情報)を検出したら回答冒頭に正直な但し書き
   const boundary = detectBoundary(req.input);
   // 最終整形(入力に無い引用の除去・記号の乱れの修正)
-  const polished = polishAnswer(verified.text, req.input);
+  const care = detectCare(req.input);
+  const polished = polishAnswer(verified.text, req.input, { dropOpeningQuote: care !== null });
   warnings.push(...polished.fixes);
   const answer = withBoundaryPrefix(polished.text, boundary);
 
@@ -187,8 +191,9 @@ async function runAnalyzeInner(
     domain,
     quorum: quorumStr,
     fallback: run.fallback,
-    tension: synth.tension,
-    resonance,
+    // 繊細な相談(寄り添いモード)では、深掘り・掛け合わせの提案を出さない
+    tension: care ? null : synth.tension,
+    resonance: care ? null : resonance,
     verified: verified.modified ? "modified" : "pass",
     totalCost: collector.totalCost(),
     ms: Date.now() - started,
@@ -197,6 +202,7 @@ async function runAnalyzeInner(
   };
   if (warnings.length > 0) meta.warnings = warnings;
   if (deps.economy) meta.economy = true;
+  if (care) meta.care = care;
 
   return {
     answer,

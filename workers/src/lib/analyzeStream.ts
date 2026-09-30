@@ -8,6 +8,7 @@ import { runNodes } from "./runNodes.js";
 import { synthesizeStream, synthesizeFallbackStream, validResonance } from "./synthesize.js";
 import { verify } from "./verify.js";
 import { polishAnswer } from "./polish.js";
+import { detectCare } from "./care.js";
 import { CostCollector, incrementQuota, logCost, logFailedCost } from "./costlog.js";
 import { QUOTA_UNITS } from "./guard.js";
 import { detectBoundary, boundaryPrefix, withBoundaryPrefix } from "./boundary.js";
@@ -105,7 +106,8 @@ async function runAnalyzeStreamInner(
   if (synth.rescuedChars) warnings.push(`synth_text_after_marker: ${synth.rescuedChars}`);
   if (verified.rejected) warnings.push(`verifier_rewrite_rejected: ${verified.rejected}`);
   // 最終整形(入力に無い引用の除去・記号の乱れの修正)
-  const polished = polishAnswer(verified.text, req.input);
+  const care = detectCare(req.input);
+  const polished = polishAnswer(verified.text, req.input, { dropOpeningQuote: care !== null });
   warnings.push(...polished.fixes);
   // 共鳴は実際に使えた腕同士でなければ出さない(起動していない腕を Living Core で光らせない)
   const resonance = validResonance(synth.resonance, run.nodes);
@@ -142,8 +144,9 @@ async function runAnalyzeStreamInner(
     domain,
     quorum: quorumStr,
     fallback: run.fallback,
-    tension: synth.tension,
-    resonance,
+    // 繊細な相談(寄り添いモード)では、深掘り・掛け合わせの提案を出さない
+    tension: care ? null : synth.tension,
+    resonance: care ? null : resonance,
     verified: verified.modified ? "modified" : "pass",
     totalCost: collector.totalCost(),
     ms: Date.now() - started,
@@ -152,6 +155,7 @@ async function runAnalyzeStreamInner(
   };
   if (warnings.length > 0) meta.warnings = warnings;
   if (deps.economy) meta.economy = true;
+  if (care) meta.care = care;
 
   // ⑥ done(一括JSONと同形)。answer は但し書きを前置きした最終テキスト
   emit("done", {

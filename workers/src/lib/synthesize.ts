@@ -4,6 +4,7 @@
 // 機械可読に出力する。マーカー順: 本文 → ---RESONANCE---(任意) → ---TENSION--- → ---SUMMARY---
 
 import { languageDirective } from "./language.js";
+import { careDirective, detectCare } from "./care.js";
 import { callModel } from "./callModel.js";
 import { callModelStream } from "./callModelStream.js";
 import {
@@ -49,11 +50,11 @@ const SYNTH_PROCEDURE = `あなたはOctoBrainの中央脳。8本の腕 — 4つ
 - 腕のIDや「ノード3によると」のような機械的引用は禁止。自然な文章に溶かす
 - 「腕」「レンズ」「ノード」「報告」という内部の言葉は本文に書かない。触れるときは「いくつかの視点」「どの視点も」のように言う
 - 「次の一歩:」「問い:」のような見出しやラベルは付けず、地の文で書く
-- 希死念慮・自傷・他害の示唆がある場合は、分析や助言より安全を優先する。気持ちを否定せず受け止め、ひとりで抱えず専門の相談窓口(日本なら よりそいホットライン 0120-279-338)や、差し迫った危険があれば119番につながるよう穏やかに勧める。方法や手段に関する情報は一切出さない。この場合は軸の緊張などの分析の説明は省き、安全と気持ちに集中する
+- 希死念慮・自傷・他害の示唆がある場合は、分析や助言より安全を優先する。気持ちを否定せず受け止め、ひとりで抱えず専門の相談窓口(日本なら よりそいホットライン 0120-279-338)や、差し迫った危険があれば119番につながるよう穏やかに勧める。方法や手段に関する情報は一切出さない。案内だけで突き放さず、まず気持ちに向き合ってから、窓口は選択肢として自然に添える。この場合は軸の緊張などの分析の説明は省く
 - 断定は根拠の強さに比例させる`;
 
 // フォールバック時 (クォーラム未達): ノード補助なしで単発直接回答。
-const FALLBACK_PROCEDURE = `あなたはOctoBrainの中央脳です。分析腕の補助が得られなかったため、以下の入力にあなた自身の判断で誠実かつ具体的に直接回答せよ。一般論を避け、この人の状況に踏み込む。過剰な断定を避け、根拠の強さに応じた言い方をする。回答本文は全角700字以内に収める。希死念慮・自傷・他害の示唆がある場合は、分析や助言より安全を優先する。気持ちを否定せず受け止め、ひとりで抱えず専門の相談窓口(日本なら よりそいホットライン 0120-279-338)や、差し迫った危険があれば119番につながるよう穏やかに勧める。方法や手段に関する情報は一切出さない。この場合は軸の緊張などの分析の説明は省き、安全と気持ちに集中する。`;
+const FALLBACK_PROCEDURE = `あなたはOctoBrainの中央脳です。分析腕の補助が得られなかったため、以下の入力にあなた自身の判断で誠実かつ具体的に直接回答せよ。一般論を避け、この人の状況に踏み込む。過剰な断定を避け、根拠の強さに応じた言い方をする。回答本文は全角700字以内に収める。希死念慮・自傷・他害の示唆がある場合は、分析や助言より安全を優先する。気持ちを否定せず受け止め、ひとりで抱えず専門の相談窓口(日本なら よりそいホットライン 0120-279-338)や、差し迫った危険があれば119番につながるよう穏やかに勧める。方法や手段に関する情報は一切出さない。案内だけで突き放さず、まず気持ちに向き合ってから、窓口は選択肢として自然に添える。この場合は軸の緊張などの分析の説明は省く。`;
 
 // RESONANCE(任意)+ TENSION + SUMMARY 出力指示(固定文)。
 // マーカー順を厳守: 本文 → RESONANCE(任意) → TENSION → SUMMARY。本文・要約に混ぜない。
@@ -182,6 +183,8 @@ export function buildSynthUserText(
   parts.push(`[今回の入力]\n${input}`);
   const lang = languageDirective(input);
   if (lang) parts.push(lang);
+  const care = careDirective(detectCare(input));
+  if (care) parts.push(care);
   parts.push(
     `[軸ごとの報告(対角の2腕が張り合う)]\n${JSON.stringify(dialogues)}`,
   );
@@ -194,6 +197,8 @@ function buildFallbackUserText(input: string, summary: string): string {
   parts.push(`[今回の入力]\n${input}`);
   const lang = languageDirective(input);
   if (lang) parts.push(lang);
+  const care = careDirective(detectCare(input));
+  if (care) parts.push(care);
   return parts.join("\n\n");
 }
 

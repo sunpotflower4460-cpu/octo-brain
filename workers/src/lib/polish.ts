@@ -13,7 +13,13 @@ function normalize(s: string): string {
     .replace(/！/g, "!");
 }
 
-export function polishAnswer(answer: string, input: string): { text: string; fixes: string[] } {
+// dropOpeningQuote: 寄り添いモードでは、入力にある引用でも冒頭から外す
+// (つらさを打ち明けた言葉を見出しのように引用し返すと機械的に響くため)。
+export function polishAnswer(
+  answer: string,
+  input: string,
+  opts: { dropOpeningQuote?: boolean } = {},
+): { text: string; fixes: string[] } {
   const fixes: string[] = [];
   let text = answer;
 
@@ -32,6 +38,8 @@ export function polishAnswer(answer: string, input: string): { text: string; fix
     if (q.length > 0 && !normalize(input).includes(q)) {
       text = text.trimStart().slice(m[0].length).trimStart();
       fixes.push("misquote_removed");
+    } else if (opts.dropOpeningQuote) {
+      text = text.trimStart().slice(m[0].length).trimStart();
     }
   }
   return { text, fixes };

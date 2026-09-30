@@ -1,18 +1,18 @@
 import { Phone } from "lucide-react";
 import { HOTLINES } from "../../lib/crisis";
 
-// 危機的な内容を検出したとき、回答の前に出す相談窓口 (App Review 1.4.1 / 安全)。
-// 分析よりも先に、ひとりで抱えないための連絡先を示す。
+// つらさを打ち明けた相談の回答の後ろに、声で話せる場所を選択肢として添える (App Review 1.4.1)。
+// 「危険と判定されて案内だけ出された」と感じさせないよう、回答より前には出さず、命令口調にしない。
 export default function CrisisSupport() {
   return (
     <aside
       role="note"
-      aria-label="相談窓口のご案内"
-      className="rounded-[var(--radius)] border border-[var(--cyan)]/40 bg-[var(--surface-1)] p-4 text-sm"
+      aria-label="声で話せる場所"
+      className="rounded-[var(--radius)] border border-[var(--line-soft)] bg-[var(--surface-1)] p-4 text-sm"
     >
-      <p className="font-semibold text-[var(--text-primary)]">ひとりで抱えないでください</p>
+      <p className="font-semibold text-[var(--text-primary)]">声で話したくなったときに</p>
       <p className="mt-1 text-[var(--text-secondary)] leading-relaxed">
-        つらい気持ちを話せる窓口があります。今すぐ危険がある場合は 119 番に電話してください。
+        ここで話し続けてもかまいません。誰かの声を聞きたくなったら、こんな場所もあります。
       </p>
       <ul className="mt-3 space-y-1.5">
         {HOTLINES.map((h) => (
@@ -31,6 +31,9 @@ export default function CrisisSupport() {
           </li>
         ))}
       </ul>
+      <p className="mt-3 text-xs text-[var(--text-muted)] leading-relaxed">
+        いますぐ身の危険があるときは、119 番につながります。
+      </p>
     </aside>
   );
 }
