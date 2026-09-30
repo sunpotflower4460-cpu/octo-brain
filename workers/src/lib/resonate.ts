@@ -5,7 +5,8 @@
 
 import { callModel } from "./callModel.js";
 import { isNodeId } from "../config/nodes.js";
-import { CostCollector, logCost } from "./costlog.js";
+import { CostCollector, incrementQuota, logCost } from "./costlog.js";
+import { QUOTA_UNITS } from "./guard.js";
 import type { Env, ResonancePair } from "../types.js";
 
 const CLAIM_MAX_LEN = 120;
@@ -33,6 +34,9 @@ export interface ResonateResponse {
     calls: number;
     totalCost: number;
     ms: number;
+    // 今月の使用量(クォータ単位)。KV 失敗時は null(warnings に理由)
+    quotaUsed: number | null;
+    warnings?: string[];
   };
 }
 
@@ -102,6 +106,8 @@ export async function runResonate(
     { env: deps.env, collector, maxTokens: RESONATE_MAX_TOKENS, signal: deps.signal },
   );
 
+  // 原価ログ + クォータ消費。KV 失敗は非致命(回答は返す)だが握りつぶさず warnings に。
+  const warnings: string[] = [];
   try {
     await logCost(
       deps.env.OCTO_KV,
@@ -110,8 +116,19 @@ export async function runResonate(
       { quorum: "resonate", fallback: false, ms: Date.now() - started, kind: "resonate" },
       deps.now,
     );
-  } catch {
-    // KV書き込み失敗は非致命(回答は返す)
+  } catch (err) {
+    warnings.push(`cost_log_failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  let quotaUsed: number | null = null;
+  try {
+    quotaUsed = await incrementQuota(
+      deps.env.OCTO_KV,
+      req.clientId,
+      deps.now,
+      QUOTA_UNITS.resonate,
+    );
+  } catch (err) {
+    warnings.push(`quota_increment_failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   return {
@@ -121,6 +138,8 @@ export async function runResonate(
       calls: collector.calls.length,
       totalCost: collector.totalCost(),
       ms: Date.now() - started,
+      quotaUsed,
+      ...(warnings.length > 0 ? { warnings } : {}),
     },
   };
 }
