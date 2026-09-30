@@ -111,7 +111,7 @@ export default function Composer({
             onCompositionEnd={() => setComposing(false)}
             placeholder="決断、アイデア、本音を OctoBrain に…"
             aria-label="OctoBrain への問い"
-            className="flex-1 resize-none overflow-hidden bg-transparent border-none py-2 text-[15px] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none disabled:opacity-60 leading-relaxed max-h-[168px]"
+            className="flex-1 resize-none overflow-hidden bg-transparent border-none py-2 text-[16px] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none disabled:opacity-60 leading-relaxed max-h-[168px]"
           />
           {busy ? (
             <button

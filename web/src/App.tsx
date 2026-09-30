@@ -48,6 +48,7 @@ import StatusAnnouncer from "./components/StatusAnnouncer";
 import type { ChatMessage } from "./features/chat/message";
 import type { NodeView, Plan, QuotaStatus, ResonancePair, SSEPhase } from "./types";
 import { quotaNote } from "./lib/quota";
+import { hapticDone, hapticTap } from "./lib/native/feedback";
 
 function uuid(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
@@ -356,6 +357,7 @@ export default function App() {
     ]);
     busyRef.current = true;
     setBusy(true);
+    void hapticTap();
     followIfAtBottom();
     setTimeout(() => scrollToBottom("auto"), 0);
 
@@ -412,6 +414,7 @@ export default function App() {
             streaming: false,
           });
           applyTrace(assistantId, (t) => traceOnDone(t, now(), payload.meta.quorum));
+          void hapticDone();
         },
         onError: (message, info) => {
           flush();

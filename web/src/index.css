@@ -8,3 +8,11 @@ body,
   height: 100%;
   margin: 0;
 }
+
+/* iOS(WKWebView/Safari)は 16px 未満の入力欄にフォーカスすると画面を自動拡大し、ヘッダーがずれて
+   右端がはみ出す(iOS シミュレーターで確認)。入力欄は 16px 以上に固定する。 */
+input,
+textarea,
+select {
+  font-size: max(16px, 1em);
+}
