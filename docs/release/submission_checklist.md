@@ -35,7 +35,9 @@
 
 ### B3. iOS ビルド(要 macOS/Xcode/実機)
 - ☑ `web/ios` 生成・assets・Info.plist・PrivacyInfo 済み、シミュレーターで本番 API まで確認済み
-- ☐ `docs/release/ios_build_runbook.md` に沿って 署名(Team)→ 実機確認(Safe Area/キーボード/fps/発熱/日本語表示)→ Archive → TestFlight
+- ☐ Workers Paid($5/月)に切り替え(KV の書き込み上限のため。ダッシュボード → Workers & Pages → Plans)
+- ☐ OpenAI の月額上限を設定(platform.openai.com/settings/organization/limits)
+- ☐ `docs/release/ios_build_runbook.md` に沿って 署名(Team)→ 実機確認(Safe Area/キーボード/触覚/共有/日本語表示/発熱)→ Archive → TestFlight
 
 ### B4. 課金(任意・要 App Store Connect)
 - ☑ 課金なし(完全無料)。IAP は不採用(`iap_plan.md`)。App Store Connect の価格は「無料」
