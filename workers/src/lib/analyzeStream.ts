@@ -5,10 +5,7 @@
 
 import { classifyDomain } from "./router.js";
 import { runNodes } from "./runNodes.js";
-import {
-  synthesizeStream,
-  synthesizeFallbackStream,
-} from "./synthesize.js";
+import { synthesizeStream, synthesizeFallbackStream, validResonance } from "./synthesize.js";
 import { verify } from "./verify.js";
 import { CostCollector, incrementQuota, logCost, logFailedCost } from "./costlog.js";
 import { QUOTA_UNITS } from "./guard.js";
@@ -105,6 +102,9 @@ async function runAnalyzeStreamInner(
   // 部分的な劣化は握りつぶさず meta.warnings で可視化する
   if (synth.truncated) warnings.push("synth_truncated");
   if (verified.rejected) warnings.push(`verifier_rewrite_rejected: ${verified.rejected}`);
+  // 共鳴は実際に使えた腕同士でなければ出さない(起動していない腕を Living Core で光らせない)
+  const resonance = validResonance(synth.resonance, run.nodes);
+  if (synth.resonance && !resonance) warnings.push("resonance_dropped: lens_not_active");
 
   const quorumStr = `${run.successCount}/${run.nodes.length}`;
 
@@ -138,7 +138,7 @@ async function runAnalyzeStreamInner(
     quorum: quorumStr,
     fallback: run.fallback,
     tension: synth.tension,
-    resonance: synth.resonance,
+    resonance,
     verified: verified.modified ? "modified" : "pass",
     totalCost: collector.totalCost(),
     ms: Date.now() - started,

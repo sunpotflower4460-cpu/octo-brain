@@ -35,9 +35,12 @@ describe("CORS — Capacitor / dev オリジン", () => {
     expect(res.headers.get("access-control-allow-origin")).toBe("http://localhost");
   });
 
-  it("Vite dev オリジンを許可する", async () => {
-    const res = await preflight("http://localhost:5173", envStub());
+  it("Vite dev オリジンは development のときだけ許可する", async () => {
+    const dev = { ...envStub(), ENVIRONMENT: "development" } as { OCTO_KV: KVNamespace };
+    const res = await preflight("http://localhost:5173", dev);
     expect(res.headers.get("access-control-allow-origin")).toBe("http://localhost:5173");
+    const prod = await preflight("http://localhost:5173", envStub());
+    expect(prod.headers.get("access-control-allow-origin")).toBeNull();
   });
 
   it("ALLOWED_ORIGIN(本番)を許可する", async () => {
@@ -48,8 +51,8 @@ describe("CORS — Capacitor / dev オリジン", () => {
     expect(res.headers.get("access-control-allow-origin")).toBe("https://octobrain.example");
   });
 
-  it("未許可オリジンはエコーしない(既定へフォールバック)", async () => {
+  it("未許可オリジンには Access-Control-Allow-Origin を付けない", async () => {
     const res = await preflight("https://evil.example", envStub());
-    expect(res.headers.get("access-control-allow-origin")).not.toBe("https://evil.example");
+    expect(res.headers.get("access-control-allow-origin")).toBeNull();
   });
 });
