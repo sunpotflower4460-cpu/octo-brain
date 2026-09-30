@@ -10,12 +10,14 @@
 // ============================================================================
 
 import {
+  fallbackFor,
   modelFor,
   estimateCost,
   type ModelConfig,
   type ModelRole,
 } from "../config/models.js";
 import type {
+  RateLimitSnapshot,
   ChatMessage,
   CostSink,
   Env,
@@ -44,7 +46,42 @@ export async function callModel(
   messages: ChatMessage[],
   opts: CallModelOpts,
 ): Promise<ModelCallResult> {
-  const cfg = opts.modelOverride ?? modelFor(role, opts.env);
+  const primary = opts.modelOverride ?? modelFor(role, opts.env);
+  try {
+    return await callWith(role, primary, messages, opts, false);
+  } catch (err) {
+    // 混雑(429)・障害(5xx)・接続失敗なら、もう一方のプロバイダーで1回だけ試す
+    const fb = shouldFallback(err) ? fallbackFor(role, opts.env, primary) : null;
+    if (!fb) throw err;
+    return await callWith(role, fb, messages, opts, true);
+  }
+}
+
+// 主のプロバイダーを諦めてよいエラーか(中断や 4xx の入力不備では切り替えない)
+export function shouldFallback(err: unknown): boolean {
+  if (isAbortError(err)) return false;
+  if (err instanceof ModelHttpError) return err.status === 429 || err.status >= 500;
+  return true; // 接続失敗など
+}
+
+// HTTP ステータスを保持するエラー(切り替え判断用)
+export class ModelHttpError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "ModelHttpError";
+  }
+}
+
+async function callWith(
+  role: ModelRole,
+  cfg: ModelConfig,
+  messages: ChatMessage[],
+  opts: CallModelOpts,
+  fellBack: boolean,
+): Promise<ModelCallResult> {
   // 推論の予算は上書きされた上限にも上乗せする(推論で本文が空にならないように)
   const maxTokens = (opts.maxTokens ?? cfg.maxTokens) + (cfg.reasoningBudget ?? 0);
   const apiKey = readKey(opts.env, cfg.keyEnv);
@@ -62,8 +99,9 @@ export async function callModel(
   const ms = nowMs() - start;
 
   if (!res.ok) {
-    throw new Error(
+    throw new ModelHttpError(
       `callModel(${role}) HTTP ${res.status}: ${bodyText.slice(0, 300)}`,
+      res.status,
     );
   }
 
@@ -79,9 +117,27 @@ export async function callModel(
     estCost: estimateCost(cfg, out.inTok, out.outTok),
     ms,
     estimated: out.estimated,
+    ...rateLimitOf(res),
+    ...(fellBack ? { fallback: true } : {}),
   });
 
   return { ...out, ms };
+}
+
+// 応答ヘッダーからプロバイダーの1分あたり上限を読む(OpenAI 形式。無ければ付けない)
+export function rateLimitOf(res: Response): { rl?: RateLimitSnapshot } {
+  const num = (h: string) => {
+    const v = res.headers.get(h);
+    const n = v === null ? NaN : Number(v);
+    return Number.isFinite(n) ? n : undefined;
+  };
+  const rl: RateLimitSnapshot = {
+    limitRequests: num("x-ratelimit-limit-requests"),
+    remainingRequests: num("x-ratelimit-remaining-requests"),
+    limitTokens: num("x-ratelimit-limit-tokens"),
+    remainingTokens: num("x-ratelimit-remaining-tokens"),
+  };
+  return Object.values(rl).some((v) => v !== undefined) ? { rl } : {};
 }
 
 // ---------------------------------------------------------------------------
@@ -324,7 +380,8 @@ async function fetchWithRetry(
     try {
       const res = await fetch(url, { ...init, signal });
       if (isRetryable(res.status) && attempt < MAX_RETRIES) {
-        await backoff(retryBaseMs, attempt, signal);
+        // 混雑時はプロバイダーが示す待ち時間(Retry-After)を尊重する(上限 2 秒。長ければ切り替えに任せる)
+        await backoff(retryBaseMs, attempt, signal, retryAfterMs(res));
         continue;
       }
       return res;
@@ -345,12 +402,23 @@ function isRetryable(status: number): boolean {
   return status === 429 || status >= 500;
 }
 
+const MAX_RETRY_AFTER_MS = 2000;
+
+function retryAfterMs(res: Response): number {
+  const ms = Number(res.headers.get("retry-after-ms"));
+  if (Number.isFinite(ms) && ms > 0) return Math.min(ms, MAX_RETRY_AFTER_MS);
+  const sec = Number(res.headers.get("retry-after"));
+  if (Number.isFinite(sec) && sec > 0) return Math.min(sec * 1000, MAX_RETRY_AFTER_MS);
+  return 0;
+}
+
 async function backoff(
   baseMs: number,
   attempt: number,
   signal: AbortSignal | undefined,
+  hintMs = 0,
 ): Promise<void> {
-  const delay = baseMs * Math.pow(2, attempt);
+  const delay = baseMs <= 0 ? 0 : Math.max(baseMs * Math.pow(2, attempt), hintMs);
   if (delay <= 0) {
     throwIfAborted(signal);
     return;

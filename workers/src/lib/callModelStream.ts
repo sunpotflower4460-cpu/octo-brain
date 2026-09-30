@@ -3,12 +3,18 @@
 // 非ストリーミングの callModel と同じく、終了時に collector へ原価ログを1件記録する。
 
 import {
+  fallbackFor,
   modelFor,
   estimateCost,
   type ModelConfig,
   type ModelRole,
 } from "../config/models.js";
-import type { CallModelOpts } from "./callModel.js";
+import {
+  ModelHttpError,
+  rateLimitOf,
+  shouldFallback,
+  type CallModelOpts,
+} from "./callModel.js";
 import type { ChatMessage } from "../types.js";
 
 interface StreamPiece {
@@ -25,27 +31,30 @@ export async function* callModelStream(
   messages: ChatMessage[],
   opts: CallModelOpts,
 ): AsyncGenerator<string, void, unknown> {
-  const cfg = opts.modelOverride ?? modelFor(role, opts.env);
-  // 推論の予算は上書きされた上限にも上乗せする(推論で本文が空にならないように)
-  const maxTokens = (opts.maxTokens ?? cfg.maxTokens) + (cfg.reasoningBudget ?? 0);
-  const apiKey = readKey(opts.env, cfg.keyEnv);
-  const req = buildStreamRequest(cfg, messages, maxTokens, apiKey);
-
+  const primary = opts.modelOverride ?? modelFor(role, opts.env);
   const start = nowMs();
-  const res = await fetch(req.url, { ...req.init, signal: opts.signal });
-  if (!res.ok || res.body === null) {
-    const body = res.body ? await res.text() : "";
-    throw new Error(
-      `callModelStream(${role}) HTTP ${res.status}: ${body.slice(0, 300)}`,
-    );
+  // ストリームの開始時に混雑(429)・障害(5xx)・接続失敗なら、もう一方のプロバイダーで開き直す。
+  // 本文を流し始めた後は切り替えない(二重の本文にしないため)。
+  let cfg = primary;
+  let fellBack = false;
+  let res: Response;
+  try {
+    res = await openStream(role, primary, messages, opts);
+  } catch (err) {
+    const fb = shouldFallback(err) ? fallbackFor(role, opts.env, primary) : null;
+    if (!fb) throw err;
+    cfg = fb;
+    fellBack = true;
+    res = await openStream(role, fb, messages, opts);
   }
+  const body = res.body as ReadableStream<Uint8Array>;
 
   let acc = "";
   let inTok: number | null = null;
   let outTok: number | null = null;
   let truncated = false;
 
-  for await (const data of readSSE(res.body, opts.signal)) {
+  for await (const data of readSSE(body, opts.signal)) {
     if (data === "[DONE]") break;
     const piece = extractStreamPiece(cfg, data);
     if (piece.inTok != null) inTok = piece.inTok;
@@ -70,8 +79,31 @@ export async function* callModelStream(
     estCost: estimateCost(cfg, finalIn, finalOut),
     ms,
     estimated,
+    ...rateLimitOf(res),
+    ...(fellBack ? { fallback: true } : {}),
   });
   opts.onStreamEnd?.({ truncated });
+}
+
+async function openStream(
+  role: ModelRole,
+  cfg: ModelConfig,
+  messages: ChatMessage[],
+  opts: CallModelOpts,
+): Promise<Response> {
+  // 推論の予算は上書きされた上限にも上乗せする(推論で本文が空にならないように)
+  const maxTokens = (opts.maxTokens ?? cfg.maxTokens) + (cfg.reasoningBudget ?? 0);
+  const apiKey = readKey(opts.env, cfg.keyEnv);
+  const req = buildStreamRequest(cfg, messages, maxTokens, apiKey);
+  const res = await fetch(req.url, { ...req.init, signal: opts.signal });
+  if (!res.ok || res.body === null) {
+    const text = res.body ? await res.text() : "";
+    throw new ModelHttpError(
+      `callModelStream(${role}) HTTP ${res.status}: ${text.slice(0, 300)}`,
+      res.status,
+    );
+  }
+  return res;
 }
 
 // ---------------------------------------------------------------------------

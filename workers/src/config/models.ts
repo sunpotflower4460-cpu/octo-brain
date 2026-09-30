@@ -115,6 +115,21 @@ export function activeProfile(env: Record<string, unknown>): ModelProfile {
   return typeof openaiKey === "string" && openaiKey.length > 0 ? "luna" : "deepseek";
 }
 
+// 混雑(429)や障害(5xx)で主のプロバイダーが応答できないときの切り替え先。
+// もう一方の構成の同じ役割を使う(両社の「1分あたりの上限」を合わせて使える)。
+// 切り替え先のキーが無い、または MODEL_FALLBACK="off" なら null。
+export function fallbackFor(
+  role: ModelRole,
+  env: Record<string, unknown>,
+  primary: ModelConfig,
+): ModelConfig | null {
+  if (env.MODEL_FALLBACK === "off") return null;
+  const other: ModelProfile = primary.keyEnv === PROFILES.luna[role].keyEnv ? "deepseek" : "luna";
+  const cfg = PROFILES[other][role];
+  const key = env[cfg.keyEnv];
+  return typeof key === "string" && key.length > 0 ? cfg : null;
+}
+
 // 統合脳(synth)だけ推論をオンにする運用スイッチ(luna 構成のみ)。
 // LUNA_SYNTH_REASONING = "none"(既定) | "low" | "medium" | "high"。
 // 推論トークンは出力として課金され max_completion_tokens も消費するため、本文分(2000)に
