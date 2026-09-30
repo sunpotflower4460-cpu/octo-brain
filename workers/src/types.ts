@@ -30,6 +30,17 @@ export interface CostCallRecord {
   estCost: number;
   ms: number;
   estimated: boolean;
+  // プロバイダーの1分あたり上限の実測(応答ヘッダー x-ratelimit-*)。規模の見積もりに使う
+  rl?: RateLimitSnapshot;
+  // 主のプロバイダーが混雑・障害で、切り替え先で応答した
+  fallback?: boolean;
+}
+
+export interface RateLimitSnapshot {
+  limitRequests?: number;
+  remainingRequests?: number;
+  limitTokens?: number;
+  remainingTokens?: number;
 }
 
 // callModel が呼び出しごとに原価ログを書き込む先。

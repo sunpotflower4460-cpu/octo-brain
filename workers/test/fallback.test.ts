@@ -1,0 +1,94 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { callModel } from "../src/lib/callModel.js";
+import { callModelStream } from "../src/lib/callModelStream.js";
+import { CostCollector } from "../src/lib/costlog.js";
+import type { ChatMessage, Env } from "../src/types.js";
+
+// 1分あたりの上限(429)・障害(5xx)で主のプロバイダーが応答できないとき、
+// もう一方(OpenAI ⇔ DeepSeek)へ切り替える。
+const messages: ChatMessage[] = [
+  { role: "system", content: "s" },
+  { role: "user", content: "u" },
+];
+const both = { OCTO_KV: {} as KVNamespace, OPENAI_API_KEY: "o", DEEPSEEK_API_KEY: "d" } as Env;
+
+function ok(text: string, headers: Record<string, string> = {}) {
+  return new Response(
+    JSON.stringify({
+      choices: [{ message: { content: text }, finish_reason: "stop" }],
+      usage: { prompt_tokens: 1, completion_tokens: 1 },
+    }),
+    { status: 200, headers: { "content-type": "application/json", ...headers } },
+  );
+}
+
+function route(handler: (url: string) => Response) {
+  const fn = vi.fn(async (url: string | URL | Request) => handler(String(url)));
+  vi.stubGlobal("fetch", fn);
+  return fn;
+}
+
+afterEach(() => vi.unstubAllGlobals());
+
+describe("プロバイダー切り替え(非ストリーム)", () => {
+  it("OpenAI が 429 を返し続けたら DeepSeek で応答し、原価ログに fallback を残す", async () => {
+    const fetch = route((url) =>
+      url.includes("openai") ? new Response("rate limited", { status: 429 }) : ok("deepseek の回答"),
+    );
+    const col = new CostCollector();
+    const r = await callModel("node", messages, { env: both, retryBaseMs: 0, collector: col });
+    expect(r.text).toBe("deepseek の回答");
+    expect(fetch.mock.calls.filter((c) => String(c[0]).includes("openai"))).toHaveLength(3);
+    expect(col.calls[0]).toMatchObject({ model: "deepseek-flash", fallback: true });
+  });
+
+  it("400(入力不備)では切り替えない", async () => {
+    route((url) => (url.includes("openai") ? new Response("bad", { status: 400 }) : ok("x")));
+    await expect(callModel("node", messages, { env: both, retryBaseMs: 0 })).rejects.toThrow("HTTP 400");
+  });
+
+  it("切り替え先のキーが無い・MODEL_FALLBACK=off なら切り替えない", async () => {
+    route((url) => (url.includes("openai") ? new Response("x", { status: 503 }) : ok("x")));
+    const onlyOpenai = { OCTO_KV: {} as KVNamespace, OPENAI_API_KEY: "o" } as Env;
+    await expect(callModel("node", messages, { env: onlyOpenai, retryBaseMs: 0 })).rejects.toThrow("HTTP 503");
+    await expect(
+      callModel("node", messages, { env: { ...both, MODEL_FALLBACK: "off" }, retryBaseMs: 0 }),
+    ).rejects.toThrow("HTTP 503");
+  });
+
+  it("1分あたり上限の実測値(x-ratelimit-*)を原価ログに残す", async () => {
+    route(() =>
+      ok("x", {
+        "x-ratelimit-limit-requests": "500",
+        "x-ratelimit-remaining-requests": "499",
+        "x-ratelimit-limit-tokens": "200000",
+        "x-ratelimit-remaining-tokens": "199000",
+      }),
+    );
+    const col = new CostCollector();
+    await callModel("node", messages, { env: both, retryBaseMs: 0, collector: col });
+    expect(col.calls[0].rl).toEqual({
+      limitRequests: 500,
+      remainingRequests: 499,
+      limitTokens: 200000,
+      remainingTokens: 199000,
+    });
+  });
+});
+
+describe("プロバイダー切り替え(ストリーム)", () => {
+  it("開始時に 429 なら DeepSeek のストリームで開き直す", async () => {
+    const sse =
+      `data: ${JSON.stringify({ choices: [{ delta: { content: "続き" } }] })}\n\n` + "data: [DONE]\n\n";
+    route((url) =>
+      url.includes("openai")
+        ? new Response("rate limited", { status: 429 })
+        : new Response(sse, { status: 200, headers: { "content-type": "text/event-stream" } }),
+    );
+    const col = new CostCollector();
+    let text = "";
+    for await (const d of callModelStream("synth", messages, { env: both, collector: col })) text += d;
+    expect(text).toBe("続き");
+    expect(col.calls[0]).toMatchObject({ model: "deepseek-v4-pro", fallback: true });
+  });
+});
