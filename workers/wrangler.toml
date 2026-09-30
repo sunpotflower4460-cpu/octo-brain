@@ -3,8 +3,10 @@ main = "src/index.ts"
 compatibility_date = "2024-12-01"
 
 # 環境変数 (シークレットではない設定)
+# ENVIRONMENT の既定は production(安全側)。ローカル開発では .dev.vars の
+# ENVIRONMENT=development が上書きし、/api/dev/* が有効になる。
 [vars]
-ENVIRONMENT = "development"
+ENVIRONMENT = "production"
 # 本番オリジン。CORS許可に使う。本番デプロイ時は wrangler secret ではなく
 # ここ or デプロイ環境の vars で上書きする
 ALLOWED_ORIGIN = ""

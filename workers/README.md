@@ -50,7 +50,8 @@ curl -X POST http://localhost:8787/api/dev/ping-model \
 ```
 
 `role` は `router` | `node` | `synth` | `verifier`。
-このルートは `ENVIRONMENT === "production"` のとき 404 で無効になる。
+このルートは `ENVIRONMENT === "development"`(`.dev.vars` で設定)のときだけ有効。
+未設定・本番(`wrangler.toml` の既定 `production`)では 404 になる。
 
 ### 分析 (analyze) — P1 / P1.5(八芒星・深化)
 

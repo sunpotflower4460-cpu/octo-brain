@@ -3,6 +3,9 @@
 # .dev.vars は .gitignore 済み。値はコミットしないこと。
 # 使うプロバイダのキーだけ設定すればよい (models.ts の keyEnv が参照する名前)。
 
+# ローカル開発フラグ。wrangler.toml の既定 production を上書きし /api/dev/* を有効にする
+ENVIRONMENT=development
+
 # openai-compat 系 (DeepSeek / Mistral / OpenAI などを baseURL で切替)
 DEEPSEEK_API_KEY=
 MISTRAL_API_KEY=

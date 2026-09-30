@@ -50,9 +50,9 @@ app.use("/api/*", (c, next) => {
 // ヘルスチェック
 app.get("/api/health", (c) => c.json({ ok: true, version: VERSION }));
 
-// 開発用: モデル疎通確認。production では無効。
+// 開発用: モデル疎通確認。ENVIRONMENT=development のときだけ有効(未設定・本番は無効)。
 app.post("/api/dev/ping-model", async (c) => {
-  if (c.env.ENVIRONMENT === "production") {
+  if (c.env.ENVIRONMENT !== "development") {
     return c.json({ error: "not_available_in_production" }, 404);
   }
 
