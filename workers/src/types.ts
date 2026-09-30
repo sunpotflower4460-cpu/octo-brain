@@ -82,6 +82,14 @@ export interface Resonance {
   root: string; // 共通の根
 }
 
+// 視点の地図: 単体のモデルが1つの最善の答えに畳むと見えなくなる、視点の分布。
+// 合意の強さ(何人中何人)・割れたところ・ひとつだけの指摘(少数意見)。
+export interface PerspectiveMap {
+  agree: { point: string; lenses: string[] } | null; // lenses: NodeId(2つ以上)
+  split: { about: string; a: ResonancePair; b: ResonancePair } | null;
+  lone: { lens: string; claim: string; why: string } | null;
+}
+
 export type NodeStatus = "ok" | "timeout" | "parse_error" | "error" | "skipped";
 export type NodeFlag = null | "insufficient_input" | "off_topic";
 

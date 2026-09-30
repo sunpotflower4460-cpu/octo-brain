@@ -5,9 +5,10 @@
 
 import { classifyDomain } from "./router.js";
 import { runNodes } from "./runNodes.js";
-import { synthesizeStream, synthesizeFallbackStream, validResonance } from "./synthesize.js";
+import { synthesizeStream, synthesizeFallbackStream, validResonance, validMap } from "./synthesize.js";
 import { verify } from "./verify.js";
 import { LeadingQuoteFilter, polishAnswer } from "./polish.js";
+import { runMapper } from "./mapper.js";
 import { shouldOfferSupport, detectCare } from "./care.js";
 import { CostCollector, incrementQuotaState, logCost, logFailedCost } from "./costlog.js";
 import { QUOTA_UNITS, quotaStatus, type QuotaStatus } from "./guard.js";
@@ -84,6 +85,10 @@ async function runAnalyzeStreamInner(
   // 境界の正直さ: 苦手系は回答冒頭に但し書きを先出しする(ストリームでも最初に見える)
   const boundary = detectBoundary(req.input);
   if (boundary) emit("token", { t: `${boundaryPrefix(boundary)}\n\n` });
+  // 視点の地図は統合脳と並列に作る(待ち時間を増やさない)。寄り添いモードでは作らない
+  const mapPromise = detectCare(req.input)
+    ? Promise.resolve(null)
+    : runMapper(req.input, run.nodes, { env: deps.env, collector, signal: deps.signal });
   const synth = run.fallback
     ? await synthesizeFallbackStream(
         req.input,
@@ -104,6 +109,8 @@ async function runAnalyzeStreamInner(
 
   // ④ 検証
   emit("phase", { phase: "verify" satisfies SSEPhase });
+  // 地図役の完了を待つ(原価ログに地図役の呼び出しも確実に入るよう、記録より前で)
+  const mapRaw = await mapPromise;
   const verified = await verify(synth.answer, {
     env: deps.env,
     collector,
@@ -158,6 +165,7 @@ async function runAnalyzeStreamInner(
     // 繊細な相談(寄り添いモード)では、深掘り・掛け合わせの提案を出さない
     tension: care ? null : synth.tension,
     resonance: care ? null : resonance,
+    map: care ? null : validMap(mapRaw ?? synth.map, run.nodes),
     verified: verified.modified ? "modified" : "pass",
     totalCost: collector.totalCost(),
     ms: Date.now() - started,

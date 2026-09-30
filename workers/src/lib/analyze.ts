@@ -4,9 +4,10 @@
 
 import { classifyDomain } from "./router.js";
 import { runNodes } from "./runNodes.js";
-import { synthesize, synthesizeFallback, validResonance } from "./synthesize.js";
+import { synthesize, synthesizeFallback, validResonance, validMap } from "./synthesize.js";
 import { verify } from "./verify.js";
 import { polishAnswer } from "./polish.js";
+import { runMapper } from "./mapper.js";
 import { shouldOfferSupport, detectCare, type CareKind } from "./care.js";
 import { CostCollector, incrementQuotaState, logCost, logFailedCost } from "./costlog.js";
 import { QUOTA_UNITS, quotaStatus, type QuotaStatus } from "./guard.js";
@@ -18,6 +19,7 @@ import type {
   NodeResult,
   Opinion,
   Plan,
+  PerspectiveMap,
   Resonance,
   Tension,
 } from "../types.js";
@@ -59,6 +61,8 @@ export function toNodeView(n: NodeResult): AnalyzeNodeView {
 export interface AnalyzeMeta {
   // 予算逼迫のため軽いモード(ライト・推論なし)で答えた
   economy?: boolean;
+  // 視点の地図(合意の強さ・割れたところ・ひとつだけの指摘)。寄り添いモードでは出さない
+  map?: PerspectiveMap | null;
   // 繊細な相談として寄り添いモードで答えた(アプリは視点一覧・深掘りを隠す)
   care?: CareKind;
   // 声で話せる場所(相談窓口)を添えてよい(アプリはこのときだけ窓口カードを出す)
@@ -134,6 +138,10 @@ async function runAnalyzeInner(
   });
 
   // ③ 掘る統合 or フォールバック
+  // 視点の地図は統合脳と並列に作る(待ち時間を増やさない)。寄り添いモードでは作らない
+  const mapPromise = detectCare(req.input)
+    ? Promise.resolve(null)
+    : runMapper(req.input, run.nodes, { env: deps.env, collector, signal: deps.signal });
   const synth = run.fallback
     ? await synthesizeFallback(req.input, req.summary, {
         env: deps.env,
@@ -149,6 +157,8 @@ async function runAnalyzeInner(
       });
 
   // ④ 検証(表面のみ最小修正)
+  // 地図役の完了を待つ(原価ログに地図役の呼び出しも確実に入るよう、記録より前で)
+  const mapRaw = await mapPromise;
   const verified = await verify(synth.answer, {
     env: deps.env,
     collector,
@@ -207,6 +217,7 @@ async function runAnalyzeInner(
     // 繊細な相談(寄り添いモード)では、深掘り・掛け合わせの提案を出さない
     tension: care ? null : synth.tension,
     resonance: care ? null : resonance,
+    map: care ? null : validMap(mapRaw ?? synth.map, run.nodes),
     verified: verified.modified ? "modified" : "pass",
     totalCost: collector.totalCost(),
     ms: Date.now() - started,
