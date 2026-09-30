@@ -147,6 +147,7 @@ async function runAnalyzeStreamInner(
     boundary,
   };
   if (warnings.length > 0) meta.warnings = warnings;
+  if (deps.economy) meta.economy = true;
 
   // ⑥ done(一括JSONと同形)。answer は但し書きを前置きした最終テキスト
   emit("done", {

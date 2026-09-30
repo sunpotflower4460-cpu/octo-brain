@@ -59,22 +59,31 @@ export async function logCost(
 }
 
 // ---- 全体の1日原価(課金なし運用のサーキットブレーカー用) ----
-// マイクロドル(整数)で積む。KV は結果整合なので同時多発では多少取りこぼすが、天井の目安には十分。
+// マイクロドル(整数)で積む。KV は同じキーへの書き込みが1秒1回までのため、全ユーザー共通の
+// 1キーに積むと同時多発で書き込みが失敗し原価を過少に数える(=予算上限が効かない)。
+// SPEND_SHARDS 個のキーに分散して書き、読むときに合算する(1秒あたり SPEND_SHARDS 回まで受けられる)。
 const SPEND_TTL_SEC = 3 * 24 * 60 * 60;
+export const SPEND_SHARDS = 16;
 
-export function spendKey(now: Date): string {
-  return `spend:${yyyymmdd(now)}`;
+export function spendKey(now: Date, shard = 0): string {
+  return `spend:${yyyymmdd(now)}:${shard}`;
 }
 
 export async function readDailySpendUsd(kv: KVNamespace, now: Date): Promise<number> {
-  const cur = await kv.get(spendKey(now));
-  const micro = cur ? parseInt(cur, 10) : 0;
-  return Number.isFinite(micro) ? micro / 1_000_000 : 0;
+  const vals = await Promise.all(
+    Array.from({ length: SPEND_SHARDS }, (_, i) => kv.get(spendKey(now, i))),
+  );
+  let micro = 0;
+  for (const v of vals) {
+    const n = v ? parseInt(v, 10) : 0;
+    if (Number.isFinite(n)) micro += n;
+  }
+  return micro / 1_000_000;
 }
 
 async function addDailySpend(kv: KVNamespace, usd: number, now: Date): Promise<void> {
   if (!(usd > 0)) return;
-  const key = spendKey(now);
+  const key = spendKey(now, Math.floor(Math.random() * SPEND_SHARDS));
   const cur = await kv.get(key);
   const parsed = cur ? parseInt(cur, 10) : 0;
   const next = (Number.isFinite(parsed) ? parsed : 0) + Math.round(usd * 1_000_000);
@@ -111,8 +120,27 @@ export function quotaKey(clientId: string, now: Date): string {
   return `quota:${clientId}:${yyyymm(now)}`;
 }
 
-// §8: quota:{clientId}:{yyyymm} を units(既定1)だけ加算。新しい使用量を返す。
-// units は原価比例の消費単位(guard.ts の QUOTA_UNITS)。
+// クォータ値の形式: "<月間使用量>|<yyyymmdd>|<その日の使用量>"。
+// 1人の1日上限を、KV の書き込みを増やさずに同じキーで数えるため。旧形式("12")も読める
+// (parseInt が先頭の数値だけを読むので月間値は互換。日次は 0 から数え直す)。
+export interface QuotaValue {
+  month: number;
+  day: number; // now の日付の使用量(別の日付なら 0)
+}
+
+export function parseQuotaValue(raw: string | null, now: Date): QuotaValue {
+  if (!raw) return { month: 0, day: 0 };
+  const [m, d, n] = raw.split("|");
+  const month = parseInt(m, 10);
+  const day = d === yyyymmdd(now) ? parseInt(n, 10) : 0;
+  return {
+    month: Number.isFinite(month) ? month : 0,
+    day: Number.isFinite(day) ? day : 0,
+  };
+}
+
+// §8: quota:{clientId}:{yyyymm} を units(既定1)だけ加算。新しい月間使用量を返す。
+// units は原価比例の消費単位(guard.ts の QUOTA_UNITS)。その日の使用量も同時に積む。
 export async function incrementQuota(
   kv: KVNamespace,
   clientId: string,
@@ -120,11 +148,11 @@ export async function incrementQuota(
   units = 1,
 ): Promise<number> {
   const key = quotaKey(clientId, now);
-  const cur = await kv.get(key);
-  const parsed = cur ? parseInt(cur, 10) : 0;
-  const next = (Number.isFinite(parsed) ? parsed : 0) + units;
-  await kv.put(key, String(next), { expirationTtl: QUOTA_TTL_SEC });
-  return next;
+  const cur = parseQuotaValue(await kv.get(key), now);
+  const month = cur.month + units;
+  const day = cur.day + units;
+  await kv.put(key, `${month}|${yyyymmdd(now)}|${day}`, { expirationTtl: QUOTA_TTL_SEC });
+  return month;
 }
 
 function yyyymmdd(d: Date): string {

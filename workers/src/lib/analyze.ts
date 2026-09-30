@@ -34,6 +34,8 @@ export interface AnalyzeDeps {
   nodeTimeoutMs?: number;
   // P5: リクエスト全体のタイムアウト予算。超過でモデル呼び出しを中断する。
   signal?: AbortSignal;
+  // 予算逼迫で軽いモードに落として答えている(meta.economy に出す)
+  economy?: boolean;
 }
 
 export interface AnalyzeNodeView {
@@ -49,6 +51,8 @@ export function toNodeView(n: NodeResult): AnalyzeNodeView {
 }
 
 export interface AnalyzeMeta {
+  // 予算逼迫のため軽いモード(ライト・推論なし)で答えた
+  economy?: boolean;
   plan: Plan;
   domain: Domain;
   quorum: string;
@@ -188,6 +192,7 @@ async function runAnalyzeInner(
     boundary,
   };
   if (warnings.length > 0) meta.warnings = warnings;
+  if (deps.economy) meta.economy = true;
 
   return {
     answer,

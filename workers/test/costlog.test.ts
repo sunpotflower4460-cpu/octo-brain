@@ -69,7 +69,8 @@ describe("incrementQuota", () => {
     const second = await incrementQuota(kv, "client-a", NOW);
     expect(first).toBe(1);
     expect(second).toBe(2);
-    expect(store.get("quota:client-a:202607")).toBe("2");
+    // 形式: "<月間>|<yyyymmdd>|<その日>"(1人の1日上限を同じキーで数える)
+    expect(store.get("quota:client-a:202607")).toMatch(/^2\|\d{8}\|2$/);
   });
 
   it("clientId ごとに独立してカウントする", async () => {

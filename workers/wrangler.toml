@@ -23,6 +23,8 @@ ALLOWED_ORIGIN = ""
 # P5 堅牢化: クォータ・連打防止・全体タイムアウト予算(文字列。未設定なら既定値)
 # FREE_MONTHLY_QUOTA: 無料枠の月間上限(超過で 429 quota_exceeded)
 FREE_MONTHLY_QUOTA = "100"
+# FREE_DAILY_QUOTA: 1人の1日上限(単位)。共有の1日予算を少数の利用者が使い切らないため
+FREE_DAILY_QUOTA = "20"
 # MIN_INTERVAL_MS: 同一clientIdの最小リクエスト間隔(未満は 429 too_frequent)
 MIN_INTERVAL_MS = "1500"
 # REQUEST_BUDGET_MS: リクエスト全体の実時間上限(超過でモデル呼び出しを中断し 504 timeout)
@@ -32,7 +34,8 @@ REQUEST_BUDGET_MS = "30000"
 IP_DAILY_QUOTA = "300"
 # DEEP_PLAN_ENABLED: deep プランの提供可否。原価が厳しいときに "false" で止める運用スイッチ
 DEEP_PLAN_ENABLED = "true"
-# DAILY_BUDGET_USD: 全体の1日原価の上限(課金なし運用の天井)。超えると当日は 503 で受付停止
+# DAILY_BUDGET_USD: 全体の1日原価の上限(課金なし運用の天井)。70% を超えると軽いモード
+# (ディープもライトで回答・統合脳の推論なし)に自動で切り替え、100% で当日の受付を停止
 DAILY_BUDGET_USD = "3"
 # MODEL_PROFILE: "deepseek" | "luna"。未指定なら OPENAI_API_KEY の有無で自動(あれば luna)
 # MODEL_PROFILE = "luna"

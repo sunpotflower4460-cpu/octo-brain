@@ -93,7 +93,7 @@ describe("runResonate", () => {
     expect(res.meta.pair.b.lens).toBe("values");
     // 共鳴もクォータを1単位消費する
     expect(res.meta.quotaUsed).toBe(1);
-    expect([...store.entries()].find(([k]) => k.startsWith("quota:c1:"))?.[1]).toBe("1");
+    expect([...store.entries()].find(([k]) => k.startsWith("quota:c1:"))?.[1]).toMatch(/^1\|/);
 
     // synth 1コール
     expect(mockedCall).toHaveBeenCalledTimes(1);

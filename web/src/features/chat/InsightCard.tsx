@@ -131,6 +131,12 @@ export default function InsightCard({
         </p>
       )}
 
+      {!streaming && meta?.economy && (
+        <p className="mt-2 text-[11px] text-[var(--text-muted)] leading-snug">
+          利用が集中しているため、軽いモードで回答しました。
+        </p>
+      )}
+
       {!streaming && meta?.fallback && (
         <p className="mt-2 text-[11px] text-[var(--text-muted)] leading-snug">
           一部の腕が戻れなかったため、中央脳だけで回答しました。
