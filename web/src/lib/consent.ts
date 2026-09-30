@@ -4,7 +4,8 @@
 
 import { kv } from "./native/kv";
 
-export const CONSENT_VERSION = "2026-09-30";
+// 2026-09-30b: 送信先に OpenAI を追加(Luna 構成)したため再同意
+export const CONSENT_VERSION = "2026-09-30b";
 const KEY = "octobrain.aiConsent";
 
 export async function hasAiConsent(): Promise<boolean> {

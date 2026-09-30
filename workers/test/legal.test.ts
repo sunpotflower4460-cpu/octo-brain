@@ -23,6 +23,8 @@ describe("法務文書ページ", () => {
     const html = await (await app.request("/legal/privacy", {}, {})).text();
     expect(html).toContain("DeepSeek");
     expect(html).toContain("中華人民共和国");
+    // Luna 構成(OPENAI_API_KEY 登録で自動切替)の送信先も開示しておく
+    expect(html).toContain("OpenAI");
   });
 });
 

@@ -43,7 +43,10 @@ export default function ConsentSheet({
         <ul className="mt-3 space-y-2 text-sm leading-relaxed text-[var(--text-secondary)] list-disc pl-5">
           <li>
             回答を作るため、入力した文章と会話の短い要約を、外部の AI サービス
-            <strong className="text-[var(--text-primary)]"> DeepSeek(中国)</strong>
+            <strong className="text-[var(--text-primary)]">
+              {" "}
+              OpenAI(米国)または DeepSeek(中国)
+            </strong>
             に送信します。
           </li>
           <li>会話の履歴はこの端末にだけ保存し、OctoBrain のサーバーには残しません。</li>
