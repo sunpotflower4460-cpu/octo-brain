@@ -3,6 +3,7 @@
 // AIが提案したペアでも、ユーザーが自分で選んだ2つでも、同じ形で受ける。
 // 1コール(synth)。全コールは callModel 経由・costlog を通す(絶対ルール5)。
 
+import { languageDirective } from "./language.js";
 import { callModel } from "./callModel.js";
 import { isNodeId } from "../config/nodes.js";
 import { CostCollector, incrementQuota, logCost, logFailedCost } from "./costlog.js";
@@ -109,6 +110,8 @@ async function runResonateInner(
   const parts: string[] = [];
   if (req.summary.trim().length > 0) parts.push(`[会話要約]\n${req.summary.trim()}`);
   parts.push(`[今回の入力]\n${req.input}`);
+  const lang = languageDirective(req.input);
+  if (lang) parts.push(lang);
   if (req.priorAnswer.trim().length > 0) {
     parts.push(`[以前の回答]\n${req.priorAnswer}`);
   }

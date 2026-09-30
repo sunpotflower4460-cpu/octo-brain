@@ -7,6 +7,7 @@ import { classifyDomain } from "./router.js";
 import { runNodes } from "./runNodes.js";
 import { synthesizeStream, synthesizeFallbackStream, validResonance } from "./synthesize.js";
 import { verify } from "./verify.js";
+import { polishAnswer } from "./polish.js";
 import { CostCollector, incrementQuota, logCost, logFailedCost } from "./costlog.js";
 import { QUOTA_UNITS } from "./guard.js";
 import { detectBoundary, boundaryPrefix, withBoundaryPrefix } from "./boundary.js";
@@ -103,6 +104,9 @@ async function runAnalyzeStreamInner(
   if (synth.truncated) warnings.push("synth_truncated");
   if (synth.rescuedChars) warnings.push(`synth_text_after_marker: ${synth.rescuedChars}`);
   if (verified.rejected) warnings.push(`verifier_rewrite_rejected: ${verified.rejected}`);
+  // 最終整形(入力に無い引用の除去・記号の乱れの修正)
+  const polished = polishAnswer(verified.text, req.input);
+  warnings.push(...polished.fixes);
   // 共鳴は実際に使えた腕同士でなければ出さない(起動していない腕を Living Core で光らせない)
   const resonance = validResonance(synth.resonance, run.nodes);
   if (synth.resonance && !resonance) warnings.push("resonance_dropped: lens_not_active");
@@ -151,7 +155,7 @@ async function runAnalyzeStreamInner(
 
   // ⑥ done(一括JSONと同形)。answer は但し書きを前置きした最終テキスト
   emit("done", {
-    answer: withBoundaryPrefix(verified.text, boundary),
+    answer: withBoundaryPrefix(polished.text, boundary),
     summary: synth.summary,
     nodes: run.nodes.map(toNodeView),
     meta,
