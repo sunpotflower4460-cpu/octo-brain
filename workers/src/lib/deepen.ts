@@ -3,6 +3,7 @@
 // 1パス目(analyze)は独立並列のまま。深化だけ対角2本が実際に"対話"する。
 // 全コールは callModel 経由・原価ログを通す(絶対ルール5)。
 
+import { languageDirective } from "./language.js";
 import { callModel } from "./callModel.js";
 import {
   buildNodeUserText,
@@ -248,6 +249,8 @@ async function weave(
   if (req.summary.trim().length > 0) parts.push(`[会話要約]\n${req.summary.trim()}`);
   parts.push(`[緊張軸]\n${axisText}`);
   parts.push(`[今回の入力]\n${req.input}`);
+  const lang = languageDirective(req.input);
+  if (lang) parts.push(lang);
   parts.push(`[以前の回答]\n${req.priorAnswer}`);
   parts.push(
     `[${nameA}の再考]\n譲れない核心: ${reconA.keep}\n変わった点: ${reconA.changed}`,

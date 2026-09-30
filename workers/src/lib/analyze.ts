@@ -6,6 +6,7 @@ import { classifyDomain } from "./router.js";
 import { runNodes } from "./runNodes.js";
 import { synthesize, synthesizeFallback, validResonance } from "./synthesize.js";
 import { verify } from "./verify.js";
+import { polishAnswer } from "./polish.js";
 import { CostCollector, incrementQuota, logCost, logFailedCost } from "./costlog.js";
 import { QUOTA_UNITS } from "./guard.js";
 import { detectBoundary, withBoundaryPrefix, type BoundaryKind } from "./boundary.js";
@@ -150,7 +151,10 @@ async function runAnalyzeInner(
 
   // ④' 境界の正直さ: 苦手系(計算/最新情報)を検出したら回答冒頭に正直な但し書き
   const boundary = detectBoundary(req.input);
-  const answer = withBoundaryPrefix(verified.text, boundary);
+  // 最終整形(入力に無い引用の除去・記号の乱れの修正)
+  const polished = polishAnswer(verified.text, req.input);
+  warnings.push(...polished.fixes);
+  const answer = withBoundaryPrefix(polished.text, boundary);
 
   const quorumStr = `${run.successCount}/${run.nodes.length}`;
 

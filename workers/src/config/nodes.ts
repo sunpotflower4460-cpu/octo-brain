@@ -43,7 +43,7 @@ export const NODE_DEFS: Lens[] = [
   { id: "empathy", verb: "本人の味方として、そのままの気持ちを受け止めて言葉にする", uiName: "友", emoji: "🤝", square: "feel", axis: "soul" },
   { id: "future", verb: "半年後・数年後、この選択がどう見えているかを描く", uiName: "望遠", emoji: "🔭", square: "see", axis: "time" },
   { id: "truth", verb: "本人が目を背けている可能性を、正直にひとつだけ指摘する", uiName: "鏡", emoji: "🪞", square: "feel", axis: "heart" },
-  { id: "step", verb: "明日できる最小の具体行動をひとつに絞る", uiName: "一歩", emoji: "🎯", square: "see", axis: "motion" },
+  { id: "step", verb: "この状況や依頼を前に進める、いちばん小さな具体的行動をひとつに絞る", uiName: "一歩", emoji: "🎯", square: "see", axis: "motion" },
   { id: "values", verb: "この人が本当に大切にしているものを、入力の言葉から掘り当てる", uiName: "核", emoji: "💎", square: "feel", axis: "soul" },
 ];
 
@@ -120,7 +120,8 @@ export const COMMON_NODE_SYSTEM = `あなたはOctoBrainの分析レンズです
 - 出力は指定のJSONのみ。前置き・後書き・コードフェンス禁止
 - opinions は最大3件。各 claim・why は60字以内。weight は0〜1の確信度
 - 入力に書かれていることの言い換え・要約は意見にしない。入力から一歩踏み込んだ指摘だけを書く
-- わからない場合は opinions を空にし flag に "insufficient_input" を設定`;
+- 一般的な質問や、本人の事情が書かれていない相談でも、タスクの観点で具体的な意見を必ず出す。情報が足りない部分は、よくある状況を仮定して意見を出し、その仮定を why に書く
+- flag の "insufficient_input" は、入力が短すぎる・意味をなさないなど、仮定を置いても意見が出せないときだけに使う`;
 
 // 出力スキーマ (§4.1)。フラット・最大3・キー名固定(軽量モデルが崩れないように)。
 const NODE_OUTPUT_FORMAT = `出力JSON形式: {"opinions":[{"claim":"60字以内","weight":0.0〜1.0,"why":"60字以内"}],"flag":null | "insufficient_input" | "off_topic"}`;
