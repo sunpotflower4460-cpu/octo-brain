@@ -86,18 +86,39 @@ export interface Resonance {
 // 合意の強さ(何人中何人)・割れたところ・ひとつだけの指摘(少数意見)。
 export interface PerspectiveMap {
   agree: { point: string; lenses: string[] } | null; // lenses: NodeId(2つ以上)
-  split: { about: string; a: ResonancePair; b: ResonancePair } | null;
-  lone: { lens: string; claim: string; why: string } | null;
+  // 世界つきのときは、その意見を出した腕が立った世界(world)も付く
+  split: { about: string; a: ResonancePair & { world?: string }; b: ResonancePair & { world?: string } } | null;
+  lone: { lens: string; claim: string; why: string; world?: string } | null;
+  // 世界をまたぐ本質: 遠く離れた3つ以上の世界の経験に共通する原理(世界つきのときだけ)
+  essence?: { point: string; lenses: string[]; worlds: string[] } | null;
 }
 
 export type NodeStatus = "ok" | "timeout" | "parse_error" | "error" | "skipped";
 export type NodeFlag = null | "insufficient_input" | "off_topic";
+
+// 腕が「その世界」から持ち寄った実際の情報。sure は確からしさ(0〜1)
+export interface Fact {
+  text: string;
+  sure: number;
+}
+
+// 腕が立つ世界(相談ごとに選ぶ。例: プロのバスケ選手、町工場の職人)
+export interface World {
+  name: string;
+  // その世界で日々向き合っている判断や制約(役柄の浅い決めつけを避けるため具体的に)
+  daily: string;
+}
 
 export interface NodeResult {
   id: string;
   status: NodeStatus;
   opinions: Opinion[];
   flag: NodeFlag;
+  // 世界つきで探求したときだけ付く
+  world?: string;
+  // その世界の見方・経験(その世界でよくあることとして。架空の個人の体験談ではない)
+  experience?: string;
+  facts?: Fact[];
 }
 
 // Workers バインディング。wrangler.toml と対応

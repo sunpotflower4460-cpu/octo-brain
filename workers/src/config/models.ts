@@ -9,7 +9,7 @@
 // (他のファイルにモデル名の文字列を書かない — CLAUDE.md 絶対ルール2)。
 // ============================================================================
 
-export type ModelRole = "router" | "node" | "synth" | "verifier" | "mapper";
+export type ModelRole = "router" | "node" | "synth" | "verifier" | "mapper" | "worlds";
 
 export type ModelProvider = "openai-compat" | "gemini" | "anthropic";
 
@@ -32,7 +32,7 @@ export interface ModelConfig {
   reasoningBudget?: number;
 }
 
-export const MODEL_ROLES: ModelRole[] = ["router", "node", "synth", "verifier", "mapper"];
+export const MODEL_ROLES: ModelRole[] = ["router", "node", "synth", "verifier", "mapper", "worlds"];
 
 // DeepSeek(OpenAI互換)。価格は公式 https://api-docs.deepseek.com/quick_start/pricing の
 // ピーク時単価(キャッシュミス入力 / 出力)で見積もる=原価ログは安全側(オフピークは約半額)。
@@ -103,11 +103,15 @@ export const BASELINE_MODELS: Record<"luna" | "sol", ModelConfig> = {
 // verifier は修正時に全文を出し直すため synth と同じ上限(通常は "pass" のみで安い)。
 const MAX_TOKENS: Record<ModelRole, number> = {
   router: 10,
-  node: 250,
+  // 世界つきのときは「その世界の経験」と「実際の情報」も返すので広めに取る
+  node: 500,
   synth: 2000,
   verifier: 2000,
   // 視点の地図(番号で答える小さな JSON)
-  mapper: 400,
+  // 世界をまたぐ本質も返すときがあるので余裕を持たせる(切れると地図全体が読めない)
+  mapper: 700,
+  // 視点の世界の選定(8つの世界の名前と日常を短い JSON で)
+  worlds: 700,
 };
 
 export type ModelProfile = "deepseek" | "luna";
@@ -122,6 +126,7 @@ export const PROFILES: Record<ModelProfile, Record<ModelRole, ModelConfig>> = {
     synth: { ...PRO, maxTokens: MAX_TOKENS.synth },
     verifier: { ...FLASH, maxTokens: MAX_TOKENS.verifier },
     mapper: { ...FLASH, maxTokens: MAX_TOKENS.mapper },
+    worlds: { ...FLASH, maxTokens: MAX_TOKENS.worlds },
   },
   luna: {
     router: { ...LUNA, maxTokens: MAX_TOKENS.router },
@@ -129,6 +134,7 @@ export const PROFILES: Record<ModelProfile, Record<ModelRole, ModelConfig>> = {
     synth: { ...LUNA, maxTokens: MAX_TOKENS.synth },
     verifier: { ...LUNA, maxTokens: MAX_TOKENS.verifier },
     mapper: { ...LUNA, maxTokens: MAX_TOKENS.mapper },
+    worlds: { ...LUNA, maxTokens: MAX_TOKENS.worlds },
   },
 };
 

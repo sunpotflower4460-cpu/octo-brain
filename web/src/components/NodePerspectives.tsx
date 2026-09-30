@@ -117,6 +117,26 @@ function NodeCard({
         )}
       </div>
 
+      {!failed && node.world && (
+        <div className="mb-2 rounded-lg bg-[var(--surface-1)] px-2.5 py-2">
+          <div className="text-[11px] font-semibold text-[var(--cyan)]">{node.world}の世界から</div>
+          {node.experience && (
+            <p className="mt-0.5 text-[12px] leading-relaxed text-[var(--text-secondary)]">{node.experience}</p>
+          )}
+          {node.facts && node.facts.length > 0 && (
+            <ul className="mt-1.5 space-y-0.5">
+              {node.facts.map((f, i) => (
+                <li key={i} className="text-[11px] leading-snug text-[var(--text-muted)]">
+                  <span aria-hidden>・</span>
+                  {f.text}
+                  {f.sure < 0.6 && <span className="ml-1 text-[var(--text-secondary)]">(要確認)</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
       {!failed && (
         <ul className="space-y-1">
           {node.opinions.map((op, i) => (
