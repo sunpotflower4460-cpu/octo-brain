@@ -130,7 +130,7 @@ export default function SettingsPanel({
         <div className="mt-3 pt-3 border-t border-[var(--line-soft)]">
           <div className="flex items-center justify-between gap-3 px-3 min-h-[44px]">
             <div className="text-sm">
-              <div className="text-[var(--text-secondary)]">外部AI(DeepSeek)への送信</div>
+              <div className="text-[var(--text-secondary)]">外部AIへの送信</div>
               <div className="text-xs text-[var(--text-muted)]">
                 {aiConsent ? "同意済み" : "未同意(送信時に確認します)"}
               </div>
