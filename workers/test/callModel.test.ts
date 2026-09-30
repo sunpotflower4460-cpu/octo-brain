@@ -293,3 +293,29 @@ describe("AbortSignal", () => {
     ).rejects.toThrow(/abort/i);
   });
 });
+
+describe("extraBody(provider固有パラメータ)", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("openai-compat のボディに追加されるが model/max_tokens は上書きできない", async () => {
+    let sent: Record<string, unknown> = {};
+    mockFetch((_url, init) => {
+      sent = JSON.parse(String(init.body)) as Record<string, unknown>;
+      return jsonResponse({
+        choices: [{ message: { content: "ok" } }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      });
+    });
+    await callModel("node", messages, {
+      env,
+      retryBaseMs: 0,
+      modelOverride: {
+        ...openaiCfg,
+        extraBody: { thinking: { type: "disabled" }, model: "evil", max_tokens: 99999 },
+      },
+    });
+    expect(sent.thinking).toEqual({ type: "disabled" });
+    expect(sent.model).toBe("test-chat");
+    expect(sent.max_tokens).toBe(250);
+  });
+});

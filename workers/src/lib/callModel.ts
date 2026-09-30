@@ -129,6 +129,7 @@ function buildOpenAICompat(
   }
   const url = `${trimSlash(cfg.baseURL)}/chat/completions`;
   const body = {
+    ...cfg.extraBody,
     model: cfg.model,
     messages: messages.map((m) => ({ role: m.role, content: m.content })),
     max_tokens: maxTokens,

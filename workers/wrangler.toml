@@ -32,13 +32,13 @@ type = "ratelimit"
 namespace_id = "1001"
 simple = { limit = 20, period = 60 }
 
-# KVネームスペース。id はプレースホルダー。実際のIDは下記コマンドで作成して差し替える:
-#   wrangler kv namespace create OCTO_KV
-#   wrangler kv namespace create OCTO_KV --preview
+# KVネームスペース(クォータ・連打防止・原価ログ)。作成コマンド:
+#   wrangler kv namespace create OCTO_KV / --preview
+# ID はシークレットではない(アカウント外からは使えない)。
 [[kv_namespaces]]
 binding = "OCTO_KV"
-id = "PLACEHOLDER_KV_ID"
-preview_id = "PLACEHOLDER_KV_PREVIEW_ID"
+id = "f95b85e5e9e64283b6b481e58d1de353"
+preview_id = "2ac980d1873a41d7b39d5d295a311fe3"
 
 # シークレット (APIキー) はリポジトリに書かない。以下で設定する:
 #   本番: wrangler secret put DEEPSEEK_API_KEY   (等、.dev.vars.example のキー名を参照)

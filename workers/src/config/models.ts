@@ -1,8 +1,7 @@
 // ============================================================================
 // モデル設定の一元管理。
 //
-// 【実装者へ】各エントリの `model` は "SET_ME" のプレースホルダーです。
-//   実装時に最新のモデル/価格を確認して設定してください。
+// 【実装者へ】モデル/価格の変更時は公式の最新価格を確認し、
 //   単価 (`pricePerMTokIn` / `pricePerMTokOut`, いずれも USD / 100万トークン) も
 //   同時に併記してください。ドキュメントには価格を書かず、この1ファイルのみで管理します。
 //
@@ -22,46 +21,46 @@ export interface ModelConfig {
   keyEnv: string; // 参照する環境変数名 (例: "DEEPSEEK_API_KEY")
   pricePerMTokIn: number; // USD / 100万入力トークン
   pricePerMTokOut: number; // USD / 100万出力トークン
+  // openai-compat のリクエストボディに追加する provider 固有パラメータ
+  // (例: DeepSeek の思考モード無効化 { thinking: { type: "disabled" } })。
+  // model / messages / max_tokens / stream は上書きできない(抽象化レイヤー側が優先)。
+  extraBody?: Record<string, unknown>;
 }
 
+// DeepSeek(OpenAI互換)。価格は公式 https://api-docs.deepseek.com/quick_start/pricing の
+// ピーク時単価(キャッシュミス入力 / 出力)で見積もる=原価ログは安全側(オフピークは約半額)。
+// 思考モードは既定 ON のため全役割で無効化する(ON のままだと推論トークンで max_tokens を
+// 使い切り、ルーター10トークン・ノードJSONが空/壊れになる)。
+const DEEPSEEK_BASE = "https://api.deepseek.com";
+const NO_THINKING = { thinking: { type: "disabled" } };
+
+const FLASH = {
+  provider: "openai-compat",
+  baseURL: DEEPSEEK_BASE,
+  model: "deepseek-flash",
+  keyEnv: "DEEPSEEK_API_KEY",
+  pricePerMTokIn: 0.3,
+  pricePerMTokOut: 1.2,
+  extraBody: NO_THINKING,
+} as const satisfies Omit<ModelConfig, "maxTokens">;
+
+const PRO = {
+  provider: "openai-compat",
+  baseURL: DEEPSEEK_BASE,
+  model: "deepseek-v4-pro",
+  keyEnv: "DEEPSEEK_API_KEY",
+  pricePerMTokIn: 1.32,
+  pricePerMTokOut: 3.96,
+  extraBody: NO_THINKING,
+} as const satisfies Omit<ModelConfig, "maxTokens">;
+
 // 役割ごとの既定モデル。docs/00_architecture.md §6 の max_tokens 設計に合わせる。
+// 天井は統合脳が決める(README 原則2)ため synth だけ上位モデル、他は軽量モデル。
 export const MODELS: Record<ModelRole, ModelConfig> = {
-  router: {
-    provider: "openai-compat",
-    baseURL: "SET_ME", // 例: "https://api.deepseek.com/v1"
-    model: "SET_ME",
-    maxTokens: 10,
-    keyEnv: "DEEPSEEK_API_KEY",
-    pricePerMTokIn: 0,
-    pricePerMTokOut: 0,
-  },
-  node: {
-    provider: "openai-compat",
-    baseURL: "SET_ME",
-    model: "SET_ME",
-    maxTokens: 250,
-    keyEnv: "DEEPSEEK_API_KEY",
-    pricePerMTokIn: 0,
-    pricePerMTokOut: 0,
-  },
-  synth: {
-    provider: "openai-compat",
-    baseURL: "SET_ME",
-    model: "SET_ME",
-    maxTokens: 1200,
-    keyEnv: "DEEPSEEK_API_KEY",
-    pricePerMTokIn: 0,
-    pricePerMTokOut: 0,
-  },
-  verifier: {
-    provider: "openai-compat",
-    baseURL: "SET_ME",
-    model: "SET_ME",
-    maxTokens: 500,
-    keyEnv: "DEEPSEEK_API_KEY",
-    pricePerMTokIn: 0,
-    pricePerMTokOut: 0,
-  },
+  router: { ...FLASH, maxTokens: 10 },
+  node: { ...FLASH, maxTokens: 250 },
+  synth: { ...PRO, maxTokens: 1200 },
+  verifier: { ...FLASH, maxTokens: 500 },
 };
 
 // ノード多様化プール (P4)。node役割に複数社の軽量モデルを持たせ、pickNodeModel が
