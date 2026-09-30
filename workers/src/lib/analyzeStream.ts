@@ -88,14 +88,14 @@ async function runAnalyzeStreamInner(
     ? await synthesizeFallbackStream(
         req.input,
         req.summary,
-        { env: deps.env, collector, signal: deps.signal, careTurns: req.careTurns },
+        { env: deps.env, collector, signal: deps.signal, careTurns: req.careTurns, prevAnswer: req.prevAnswer },
         onToken,
       )
     : await synthesizeStream(
         req.input,
         req.summary,
         run.nodes,
-        { env: deps.env, collector, signal: deps.signal, careTurns: req.careTurns },
+        { env: deps.env, collector, signal: deps.signal, careTurns: req.careTurns, prevAnswer: req.prevAnswer },
         onToken,
       );
 

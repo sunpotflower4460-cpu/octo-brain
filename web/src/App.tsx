@@ -58,6 +58,17 @@ function uuid(): string {
 // fetch の中断(停止ボタン・会話切替)か
 const isAbort = (err: unknown) => err instanceof DOMException && err.name === "AbortError";
 
+// 直前のアシスタントの回答(完了したもの)。サーバーは 2000 字で切る
+function lastAnswerOf(messages: ChatMessage[]): string | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role === "assistant" && !m.streaming && !m.errored && m.content.trim().length > 0) {
+      return m.content.slice(0, 2000);
+    }
+  }
+  return undefined;
+}
+
 const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 const wallNow = () => Date.now();
 
@@ -394,6 +405,7 @@ export default function App() {
         careTurns: messagesRef.current.filter(
           (m) => m.meta?.care === "crisis" || m.meta?.care === "distress",
         ).length,
+        prevAnswer: lastAnswerOf(messagesRef.current),
       },
       {
         onPhase: (phase: SSEPhase, nodeIds?: string[]) =>
