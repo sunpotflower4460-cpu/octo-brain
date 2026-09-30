@@ -7,7 +7,8 @@
 // - crisis           : 危機(方法を求める・具体的な計画や手段・自傷・自殺の言及)。窓口を案内する
 // - distress         : つらさの吐露(「マジ辛くて消えたい」など)。話を聴くことに徹し、窓口は控えめに
 // - medical_emergency: 命に関わる急病の可能性がある症状
-export type CareKind = "crisis" | "distress" | "medical_emergency";
+// - venting          : 死や消滅を口にしない、疲れ・限界の短い吐露(「もう無理、疲れた」)。聴くことに徹する
+export type CareKind = "crisis" | "distress" | "venting" | "medical_emergency";
 
 // 危機: 方法・手段・計画・行為・切迫
 const CRISIS: RegExp[] = [
@@ -27,6 +28,12 @@ const DISTRESS: RegExp[] = [
   /want to die|want to disappear/i,
 ];
 
+// 疲れ・限界の吐露。相談の形(〜すべき? どうすれば?)をとっていない短い入力だけを対象にする
+// (「仕事に疲れた。転職すべき?」は通常の相談として8視点で答える)
+const VENTING = /もう無理|疲れた|疲れ果て|限界|しんどい|投げ出したい|逃げ出したい|心が折れ|つらすぎ|辛すぎ|泣きたい/;
+const CONSULT = /べき|どう(すれば|したら|する)|[?？]|迷って|教えて|方法/;
+const VENTING_MAX_LEN = 60;
+
 const MEDICAL_EMERGENCY: RegExp[] = [
   /胸.{0,8}(締め付け|しめつけ|圧迫|激しく痛|強く痛)/,
   /(意識がない|意識が(ない|戻らない|もうろう)|呼びかけに反応しない|呼吸(をして|し)ていない|息をしていない)/,
@@ -38,6 +45,7 @@ const MEDICAL_EMERGENCY: RegExp[] = [
 export function detectCare(input: string): CareKind | null {
   if (CRISIS.some((p) => p.test(input))) return "crisis";
   if (DISTRESS.some((p) => p.test(input))) return "distress";
+  if (input.length <= VENTING_MAX_LEN && VENTING.test(input) && !CONSULT.test(input)) return "venting";
   if (MEDICAL_EMERGENCY.some((p) => p.test(input))) return "medical_emergency";
   return null;
 }
@@ -54,6 +62,14 @@ export function shouldOfferSupport(kind: CareKind | null, careTurns: number, ans
 // 統合脳・深化・共鳴の user メッセージに添える指示。
 export function careDirective(kind: CareKind | null, careTurns = 0): string | null {
   switch (kind) {
+    case "venting":
+      return `[寄り添いモード・吐露]
+疲れや限界の短い吐露。死や自傷の示唆はない。分析や助言より先に、まず受け止めて話を聴く。
+- 相談文を「」で引用して書き出さない。自分の言葉で語りかけて始める
+- 危機として扱わない。死にたい気持ちや危険の確認、相談窓口・119番の案内から入らない(本文に死や自傷の示唆が出てきたときだけ、柔らかく確かめる)
+- 責めない、説教しない、「〜すべき」を並べない、安易に励まさない、解決策を急がない
+- 軸・緊張・視点・腕などの分析の言葉は使わない
+- 何があったのかを、話せるところから聞かせてほしいと穏やかに伝え、開かれた問いで終える。250字程度`;
     case "distress":
       return careTurns >= 1
         ? `[寄り添いモード・継続]
