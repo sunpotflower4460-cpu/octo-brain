@@ -27,6 +27,9 @@ export interface ModelConfig {
   extraBody?: Record<string, unknown>;
   // 出力上限のパラメータ名。OpenAI の推論モデル(GPT-6 系)は max_completion_tokens のみ受け付ける
   maxTokensParam?: "max_tokens" | "max_completion_tokens";
+  // 推論トークンの予算。出力上限(maxTokens や呼び出し側の上書き)に必ず上乗せされる。
+  // 推論が上限を食って本文が空になるのを防ぐ(共鳴のように上限を上書きする呼び出しでも効く)
+  reasoningBudget?: number;
 }
 
 export const MODEL_ROLES: ModelRole[] = ["router", "node", "synth", "verifier"];
@@ -126,7 +129,7 @@ export function modelFor(role: ModelRole, env: Record<string, unknown>): ModelCo
     return {
       ...cfg,
       extraBody: { reasoning_effort: effort },
-      maxTokens: cfg.maxTokens + SYNTH_REASONING_BUDGET[effort],
+      reasoningBudget: SYNTH_REASONING_BUDGET[effort],
     };
   }
   return cfg;

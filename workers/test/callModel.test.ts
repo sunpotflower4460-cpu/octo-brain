@@ -394,3 +394,24 @@ describe("maxTokensParam(OpenAI 推論モデル)", () => {
     expect(sent.reasoning_effort).toBe("none");
   });
 });
+
+describe("reasoningBudget(推論の予算は上書きした上限にも上乗せ)", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it("maxTokens を上書きしても推論の予算が足される", async () => {
+    let sent: Record<string, unknown> = {};
+    mockFetch((_url, init) => {
+      sent = JSON.parse(String(init.body)) as Record<string, unknown>;
+      return jsonResponse({
+        choices: [{ message: { content: "ok" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      });
+    });
+    await callModel("synth", messages, {
+      env,
+      retryBaseMs: 0,
+      maxTokens: 900,
+      modelOverride: { ...openaiCfg, maxTokensParam: "max_completion_tokens", reasoningBudget: 4000 },
+    });
+    expect(sent.max_completion_tokens).toBe(4900);
+  });
+});
