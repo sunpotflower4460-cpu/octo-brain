@@ -7,7 +7,7 @@ import { classifyDomain } from "./router.js";
 import { runNodes } from "./runNodes.js";
 import { synthesizeStream, synthesizeFallbackStream, validResonance } from "./synthesize.js";
 import { verify } from "./verify.js";
-import { polishAnswer } from "./polish.js";
+import { LeadingQuoteFilter, polishAnswer } from "./polish.js";
 import { shouldOfferSupport, detectCare } from "./care.js";
 import { CostCollector, incrementQuota, logCost, logFailedCost } from "./costlog.js";
 import { QUOTA_UNITS } from "./guard.js";
@@ -75,7 +75,12 @@ async function runAnalyzeStreamInner(
 
   // ③ 掘る統合(token 逐次) or フォールバック
   emit("phase", { phase: "synth" satisfies SSEPhase });
-  const onToken = (t: string) => emit("token", { t });
+  // 寄り添いモードでは、冒頭の引用段落をストリームにも流さない(完了時に消えるちらつきを防ぐ)
+  const quoteFilter = detectCare(req.input) ? new LeadingQuoteFilter() : null;
+  const onToken = (t: string) => {
+    const out = quoteFilter ? quoteFilter.push(t) : t;
+    if (out.length > 0) emit("token", { t: out });
+  };
   // 境界の正直さ: 苦手系は回答冒頭に但し書きを先出しする(ストリームでも最初に見える)
   const boundary = detectBoundary(req.input);
   if (boundary) emit("token", { t: `${boundaryPrefix(boundary)}\n\n` });
@@ -93,6 +98,9 @@ async function runAnalyzeStreamInner(
         { env: deps.env, collector, signal: deps.signal, careTurns: req.careTurns },
         onToken,
       );
+
+  const rest = quoteFilter?.flush();
+  if (rest) emit("token", { t: rest });
 
   // ④ 検証
   emit("phase", { phase: "verify" satisfies SSEPhase });
