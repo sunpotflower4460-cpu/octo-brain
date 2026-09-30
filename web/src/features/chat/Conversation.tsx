@@ -40,12 +40,6 @@ export default function Conversation({
                 <User className="w-4 h-4 text-[var(--text-muted)]" aria-hidden />
               </div>
             </div>
-            {/* 危機的な内容には、回答より先に相談窓口を示す */}
-            {detectCrisis(msg.content) && (
-              <div className="mt-3">
-                <CrisisSupport />
-              </div>
-            )}
           </div>
         ) : (
           <div key={msg.id} className="max-w-full">
@@ -72,7 +66,19 @@ export default function Conversation({
               />
             )}
 
-            {msg.nodes && msg.nodes.length > 0 && (
+            {/* 寄り添いモード: まず回答で向き合い、声で話せる場所はその後ろに選択肢として置く。
+                サーバーが判定できなかった場合(通信失敗等)もアプリ側の検出で出す */}
+            {!msg.streaming &&
+              (msg.meta?.care === "crisis" ||
+                (!msg.meta && detectCrisis(msg.sourceInput ?? ""))) && (
+                <div className="mt-3">
+                  <CrisisSupport />
+                </div>
+              )}
+
+            {/* 寄り添いモードでは、視点の一覧・深掘り・掛け合わせを出さない
+                (つらさを打ち明けた相談を「分析対象」として見せない) */}
+            {!msg.meta?.care && msg.nodes && msg.nodes.length > 0 && (
               <div className="mt-2">
                 <NodePerspectives
                   nodes={msg.nodes}
@@ -82,6 +88,7 @@ export default function Conversation({
               </div>
             )}
 
+            {!msg.meta?.care && (
             <NextThought
               msg={msg}
               busy={handlers.busy}
@@ -90,6 +97,7 @@ export default function Conversation({
               onDeepen={() => handlers.onDeepen(msg)}
               onResonateAI={(pair) => handlers.onResonate(msg, pair)}
             />
+            )}
           </div>
         ),
       )}

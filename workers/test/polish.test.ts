@@ -50,3 +50,12 @@ describe("回答言語の判定", async () => {
     expect(languageDirective("転職すべき?")).toBeNull();
   });
 });
+
+describe("寄り添いモードでは冒頭の引用を外す", () => {
+  it("入力にある引用でも、dropOpeningQuote なら外す", () => {
+    const input = "消えたいって毎晩思う";
+    const r = polishAnswer("「消えたいって毎晩思う」\n\n話してくれてありがとう。", input, { dropOpeningQuote: true });
+    expect(r.text).toBe("話してくれてありがとう。");
+    expect(polishAnswer("「消えたいって毎晩思う」\n\n本文", input).text).toContain("「消えたい");
+  });
+});
