@@ -20,11 +20,13 @@ import type {
   Env,
   NodeResult,
   Opinion,
+  PerspectiveMap,
   Resonance,
   Tension,
 } from "../types.js";
 
 const RESONANCE_MARKER = "---RESONANCE---";
+const MAP_MARKER = "---MAP---";
 const TENSION_MARKER = "---TENSION---";
 const SUMMARY_MARKER = "---SUMMARY---";
 const SUMMARY_MAX_LEN = 300;
@@ -46,6 +48,7 @@ const SYNTH_PROCEDURE = `あなたはOctoBrainの中央脳。8本の腕 — 4つ
 10. 軸をまたいで、遠いのに響き合う opinion の組がひとつだけあれば ${RESONANCE_MARKER} 行を出す(§共鳴)。基準: (a)異なる軸に属する (b)共通の根が一文で言える (c)組み合わせると新しい選択肢が生まれる。3つすべて満たすときだけ。無理に作らない。該当が無ければ出さない
 - 相談ではなく作業の依頼(計算・文章の作成や改善・要約・アイデア出し・論点整理など)なら、依頼された成果物を先に、完全な形で出す。軸の緊張・次の一歩・問いは、成果物を良くするのに役立つ場合だけ短く添える
 - 依頼と噛み合わない腕の提案(計算に対する「明日やる」など)は、わざわざ取り上げて否定せず、黙って捨てる
+- ひとつの視点だけが指摘していて、他の視点が触れていないが見落とせない点(少数意見)があれば、まとまりを優先して捨てず、本文でも短く触れる
 - 腕の意見に賛成して並べるだけの統合は禁止。少なくとも一か所、腕たちの見立てに対するあなた自身の判断(同意の理由・修正・異論)を根拠とともに示す
 - 腕のIDや「ノード3によると」のような機械的引用は禁止。自然な文章に溶かす
 - 「腕」「レンズ」「ノード」「報告」という内部の言葉は本文に書かない。触れるときは「いくつかの視点」「どの視点も」のように言う
@@ -92,6 +95,8 @@ export interface SynthResult {
   summary: string;
   tension: Tension | null;
   resonance: Resonance | null;
+  // 視点の地図(合意・対立・少数意見)。無ければ null
+  map?: PerspectiveMap | null;
   // 出力上限で打ち切られた(本文途中切れ・マーカー欠落の可能性)。meta.warnings に載せる
   truncated?: boolean;
   // 機械可読行(RESONANCE/TENSION)の後ろに本文の続きが書かれていたので本文へ戻した文字数。
@@ -232,12 +237,13 @@ export function splitAnswerTensionSummary(
   oldSummary: string,
 ): SynthResult {
   const rIdx = text.indexOf(RESONANCE_MARKER);
+  const mIdx = text.indexOf(MAP_MARKER);
   const tIdx = text.indexOf(TENSION_MARKER);
   const sIdx = text.indexOf(SUMMARY_MARKER);
 
   // 本文は最初に現れたマーカーの手前まで
   let answerEnd = text.length;
-  for (const i of [rIdx, tIdx, sIdx]) {
+  for (const i of [rIdx, mIdx, tIdx, sIdx]) {
     if (i !== -1) answerEnd = Math.min(answerEnd, i);
   }
   let answer = text.slice(0, answerEnd).trim();
@@ -247,15 +253,23 @@ export function splitAnswerTensionSummary(
   // RESONANCE: rIdx から次のマーカー(TENSION/SUMMARY のうち rIdx より後で最小)まで
   let resonance: Resonance | null = null;
   if (rIdx !== -1) {
-    const seg = text.slice(rIdx + RESONANCE_MARKER.length, nextMarkerEnd(text, rIdx, [tIdx, sIdx]));
+    const seg = text.slice(rIdx + RESONANCE_MARKER.length, nextMarkerEnd(text, rIdx, [mIdx, tIdx, sIdx]));
     resonance = parseResonance(seg);
+    stray.push(strayText(seg));
+  }
+
+  // MAP: mIdx から次のマーカーまで
+  let map: PerspectiveMap | null = null;
+  if (mIdx !== -1) {
+    const seg = text.slice(mIdx + MAP_MARKER.length, nextMarkerEnd(text, mIdx, [rIdx, tIdx, sIdx]));
+    map = parseMap(seg);
     stray.push(strayText(seg));
   }
 
   // TENSION: tIdx から次のマーカー(SUMMARY のうち tIdx より後)まで
   let tension: Tension | null = null;
   if (tIdx !== -1) {
-    const seg = text.slice(tIdx + TENSION_MARKER.length, nextMarkerEnd(text, tIdx, [sIdx]));
+    const seg = text.slice(tIdx + TENSION_MARKER.length, nextMarkerEnd(text, tIdx, [mIdx, sIdx]));
     tension = parseTension(seg);
     stray.push(strayText(seg));
   }
@@ -270,7 +284,7 @@ export function splitAnswerTensionSummary(
     if (raw.length > 0) summary = raw.slice(0, SUMMARY_MAX_LEN);
   }
 
-  return { answer, summary, tension, resonance, rescuedChars };
+  return { answer, summary, tension, resonance, map, rescuedChars };
 }
 
 // マーカー行の JSON 以外に残った文字列。短い雑音(句読点・空白)は本文と見なさない。
@@ -325,6 +339,50 @@ function parseResonance(raw: string): Resonance | null {
   }
 }
 
+// MAP行の {...} を抽出・形だけ検証(レンズが実在IDか、文字列が空でないか)。失敗は null(非致命)。
+function parseMap(raw: string): PerspectiveMap | null {
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start === -1 || end <= start) return null;
+  try {
+    const o = JSON.parse(raw.slice(start, end + 1)) as Record<string, unknown>;
+    const str = (v: unknown) => (typeof v === "string" ? v.trim().slice(0, CLAIM_MAX_LEN) : "");
+    let agree: PerspectiveMap["agree"] = null;
+    const ag = o.agree as Record<string, unknown> | null;
+    if (ag && typeof ag === "object" && Array.isArray(ag.lenses)) {
+      const lenses = [...new Set(ag.lenses.filter(isNodeId))];
+      if (str(ag.point) && lenses.length >= 2) agree = { point: str(ag.point), lenses };
+    }
+    let split: PerspectiveMap["split"] = null;
+    const sp = o.split as Record<string, unknown> | null;
+    if (sp && typeof sp === "object") {
+      const a = pairOf(sp.a);
+      const b = pairOf(sp.b);
+      if (a && b && a.lens !== b.lens && str(sp.about)) split = { about: str(sp.about), a, b };
+    }
+    let lone: PerspectiveMap["lone"] = null;
+    const lo = o.lone as Record<string, unknown> | null;
+    if (lo && typeof lo === "object" && isNodeId(lo.lens) && str(lo.claim) && str(lo.why)) {
+      lone = { lens: lo.lens, claim: str(lo.claim), why: str(lo.why) };
+    }
+    return agree || split || lone ? { agree, split, lone } : null;
+  } catch {
+    return null;
+  }
+}
+
+// 地図に出てくる腕が、今回実際に使えた腕かを検証する(起動していない腕を数えない)。
+// 合意は使えた腕だけに絞り2つ未満なら外す。対立・少数意見は両方/本人が使えた腕のときだけ残す。
+export function validMap(map: PerspectiveMap | null | undefined, nodes: NodeResult[]): PerspectiveMap | null {
+  if (!map) return null;
+  const usable = new Set(nodes.filter(isUsableNode).map((n) => n.id as string));
+  const agreeLenses = map.agree ? map.agree.lenses.filter((l) => usable.has(l)) : [];
+  const agree = map.agree && agreeLenses.length >= 2 ? { ...map.agree, lenses: agreeLenses } : null;
+  const split = map.split && usable.has(map.split.a.lens) && usable.has(map.split.b.lens) ? map.split : null;
+  const lone = map.lone && usable.has(map.lone.lens) ? map.lone : null;
+  return agree || split || lone ? { agree, split, lone } : null;
+}
+
 function pairOf(v: unknown): { lens: NodeId; claim: string } | null {
   if (v === null || typeof v !== "object") return null;
   const o = v as Record<string, unknown>;
@@ -339,7 +397,7 @@ function pairOf(v: unknown): { lens: NodeId; claim: string } | null {
 // マーカーがチャンク分割をまたいでも漏れないよう末尾を保持する。
 // ---------------------------------------------------------------------------
 export class DepthStreamCutter {
-  static readonly MARKERS = [RESONANCE_MARKER, TENSION_MARKER, SUMMARY_MARKER];
+  static readonly MARKERS = [RESONANCE_MARKER, MAP_MARKER, TENSION_MARKER, SUMMARY_MARKER];
   private static readonly HOLD =
     Math.max(...DepthStreamCutter.MARKERS.map((m) => m.length)) - 1;
 

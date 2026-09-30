@@ -238,7 +238,8 @@ describe("runAnalyze パイプライン (P1.5)", () => {
     expect(key).toBeTruthy();
     const rec = JSON.parse(store.get(key!)!) as { kind: string; calls: unknown[] };
     expect(rec.kind).toBe("analyze_failed");
-    expect(rec.calls.length).toBe(5); // router 1 + node 4(synth は失敗で未記録)
+    // router 1 + node 4 + 地図役 1(統合と並列に走り課金済み)。synth は失敗で未記録
+    expect(rec.calls.length).toBe(6);
     // 失敗時はクォータを消費しない
     expect([...store.keys()].some((k) => k.startsWith("quota:"))).toBe(false);
   });

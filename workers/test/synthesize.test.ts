@@ -177,3 +177,29 @@ describe("機械可読行の後ろに書かれた本文の救出", () => {
     expect(r.rescuedChars).toBe(0);
   });
 });
+
+describe("視点の地図(MAP)", async () => {
+  const { splitAnswerTensionSummary, validMap } = await import("../src/lib/synthesize.js");
+  const text =
+    '本文です。\n---MAP--- {"agree":{"point":"今すぐ辞めるのは早い","lenses":["reason","risk","future","emotion"]},' +
+    '"split":{"about":"動く時期","a":{"lens":"risk","claim":"先に備えを"},"b":{"lens":"step","claim":"まず試す"}},' +
+    '"lone":{"lens":"truth","claim":"反対を理由に先送りしている","why":"決断の主語が本人から外れている"}}\n' +
+    '---TENSION--- {"axis":"動の軸","reason":"r"}\n---SUMMARY---\n要約';
+  it("本文・地図・緊張・要約を分けて読み取る", () => {
+    const r = splitAnswerTensionSummary(text, "");
+    expect(r.answer).toBe("本文です。");
+    expect(r.map?.agree?.lenses).toEqual(["reason", "risk", "future", "emotion"]);
+    expect(r.map?.split?.about).toBe("動く時期");
+    expect(r.map?.lone?.lens).toBe("truth");
+    expect(r.tension?.axis).toBe("動の軸");
+  });
+  it("実際に使えなかった腕は地図から外す(合意は2つ未満なら外す)", () => {
+    const r = splitAnswerTensionSummary(text, "");
+    const ok = (id: string) => ({ id, status: "ok", opinions: [{ claim: "c", weight: 0.8, why: "w" }], flag: null }) as never;
+    const m = validMap(r.map, [ok("reason"), ok("risk"), ok("step")]);
+    expect(m?.agree?.lenses).toEqual(["reason", "risk"]);
+    expect(m?.split?.b.lens).toBe("step");
+    expect(m?.lone).toBeNull(); // truth は起動していない
+    expect(validMap(r.map, [ok("empathy")])).toBeNull();
+  });
+});

@@ -9,7 +9,7 @@
 // (他のファイルにモデル名の文字列を書かない — CLAUDE.md 絶対ルール2)。
 // ============================================================================
 
-export type ModelRole = "router" | "node" | "synth" | "verifier";
+export type ModelRole = "router" | "node" | "synth" | "verifier" | "mapper";
 
 export type ModelProvider = "openai-compat" | "gemini" | "anthropic";
 
@@ -32,7 +32,7 @@ export interface ModelConfig {
   reasoningBudget?: number;
 }
 
-export const MODEL_ROLES: ModelRole[] = ["router", "node", "synth", "verifier"];
+export const MODEL_ROLES: ModelRole[] = ["router", "node", "synth", "verifier", "mapper"];
 
 // DeepSeek(OpenAI互換)。価格は公式 https://api-docs.deepseek.com/quick_start/pricing の
 // ピーク時単価(キャッシュミス入力 / 出力)で見積もる=原価ログは安全側(オフピークは約半額)。
@@ -106,6 +106,8 @@ const MAX_TOKENS: Record<ModelRole, number> = {
   node: 250,
   synth: 2000,
   verifier: 2000,
+  // 視点の地図(番号で答える小さな JSON)
+  mapper: 400,
 };
 
 export type ModelProfile = "deepseek" | "luna";
@@ -119,12 +121,14 @@ export const PROFILES: Record<ModelProfile, Record<ModelRole, ModelConfig>> = {
     node: { ...FLASH, maxTokens: MAX_TOKENS.node },
     synth: { ...PRO, maxTokens: MAX_TOKENS.synth },
     verifier: { ...FLASH, maxTokens: MAX_TOKENS.verifier },
+    mapper: { ...FLASH, maxTokens: MAX_TOKENS.mapper },
   },
   luna: {
     router: { ...LUNA, maxTokens: MAX_TOKENS.router },
     node: { ...LUNA, maxTokens: MAX_TOKENS.node },
     synth: { ...LUNA, maxTokens: MAX_TOKENS.synth },
     verifier: { ...LUNA, maxTokens: MAX_TOKENS.verifier },
+    mapper: { ...LUNA, maxTokens: MAX_TOKENS.mapper },
   },
 };
 
