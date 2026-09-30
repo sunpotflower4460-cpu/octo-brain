@@ -21,20 +21,21 @@
 
 ### B0. 事前に埋める値(`[要記入]`/`SET_ME`)
 - ☑ `workers/legal/*` の最終更新日・管轄・LLM プロバイダー名(事業者名は「App Store に表示される販売者」で記載済み。屋号を使う場合は差し替え)
-- ☐ `web/src/config/appInfo.ts` の `PRIVACY_URL` / `TERMS_URL`(ホスティング後の実URL)、必要なら `SUPPORT_EMAIL`
-- ☐ `web/.env.production` の `VITE_API_BASE`(本番 Workers URL)
-- ☐ `docs/release/app_store_connect.md` の SKU・サポートURL 等
+- ☑ `web/src/config/appInfo.ts` の `PRIVACY_URL` / `TERMS_URL`(API_BASE から自動)
+- ☑ `web/.env.production` の `VITE_API_BASE`(本番 Workers URL。未設定だとビルドが失敗する)
+- ☐ `docs/release/app_store_connect.md` の SKU(サポートURL・プライバシーURL は記入済み)
 
 ### B1. バックエンド本番化(要 LLM API キー)
-- ☐ `workers/src/config/models.ts` の `SET_ME`(モデル/価格)を**本番ベンチ**で確定(→ `docs/phases/P4_tuning.md`)
-- ☐ `wrangler kv namespace create` で KV を作り `wrangler.toml` に id 反映
-- ☐ `wrangler secret put`(各プロバイダーキー)/ `npm run deploy`
+- ☑ `workers/src/config/models.ts`: DeepSeek(flash / v4-pro)で設定・本番で疎通確認済み。☐ 本番ベンチ(`npm run bench`)で品質を数値確認
+- ☑ KV `OCTO_KV` 作成・`wrangler.toml` 反映済み
+- ☑ `DEEPSEEK_API_KEY` 登録・本番デプロイ済み(`/api/health` が 200)。☐ Workers Paid への切替(KV 書き込み上限のため推奨)。☐ Workers Builds の失敗原因をダッシュボードで確認
 
 ### B2. ホスティング(プライバシー/規約の公開URL)
 - ☑ 公開URL化済み: https://octo-brain.sunpotflower4460.workers.dev/legal/privacy ・ /legal/terms ・ /support(`appInfo.ts` は API_BASE から自動設定)
 
 ### B3. iOS ビルド(要 macOS/Xcode/実機)
-- ☐ `docs/release/ios_build_runbook.md` に沿って `cap add ios` → assets 生成 → 署名 → 実機確認(Safe Area/キーボード/fps/発熱)→ Archive → TestFlight
+- ☑ `web/ios` 生成・assets・Info.plist・PrivacyInfo 済み、シミュレーターで本番 API まで確認済み
+- ☐ `docs/release/ios_build_runbook.md` に沿って 署名(Team)→ 実機確認(Safe Area/キーボード/fps/発熱/日本語表示)→ Archive → TestFlight
 
 ### B4. 課金(任意・要 App Store Connect)
 - ☐ `docs/release/iap_plan.md` に沿って products 作成・RevenueCat 接続・サンドボックス検証(未課金でも完結を維持)
@@ -42,7 +43,7 @@
 ### B5. App Store Connect 入力
 - ☐ `docs/release/app_store_connect.md` を転記(基本情報・説明・キーワード・App Privacy・年齢・**審査ノート**)
 - ☐ スクショ(`docs/release/screenshots/`)をアップロード
-- ☐ 年齢レーティング 17+、価格/提供地域
+- ☐ 年齢レーティング設問(新区分。`app_store_connect.md` §7)、価格/提供地域
 
 ### B6. 提出・運用
 - ☐ 段階的リリース(7日)ON → 審査提出
