@@ -101,3 +101,29 @@ describe("memory storage adapter (fallback)", () => {
     expect(loaded!.messages[0].trace?.phase).toBe("done");
   });
 });
+
+describe("壊れた保存データの正規化(起動時クラッシュ対策)", () => {
+  it("messages が配列でない・content 欠落・不正な role を安全な形にそろえる", async () => {
+    const s = await createStorage();
+    const broken = {
+      ...conv("broken", 1),
+      summary: undefined,
+      messages: [
+        { id: "u1", role: "user", content: "質問" },
+        { id: "a1", role: "assistant" }, // content 欠落
+        { role: "system", content: "x" }, // 不正 role
+        null,
+      ],
+    } as unknown as StoredConversation;
+    expect(await s.save(broken)).toBe(true);
+    const got = await s.get("broken");
+    expect(got?.messages.map((m) => [m.role, m.content])).toEqual([
+      ["user", "質問"],
+      ["assistant", ""],
+    ]);
+    expect(got?.summary).toBe("");
+
+    await s.save({ ...conv("broken2", 1), messages: "oops" } as unknown as StoredConversation);
+    expect((await s.get("broken2"))?.messages).toEqual([]);
+  });
+});

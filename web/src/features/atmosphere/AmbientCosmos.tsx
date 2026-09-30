@@ -21,6 +21,8 @@ function ambientCoreVm(reducedMotion: boolean): CoreViewModel {
   return {
     phase: "nodes",
     reducedMotion,
+    // 背景は装飾なので低頻度で十分(常時 60fps の再描画は発熱・電池消費の原因)
+    maxFps: 12,
     lenses: LENS_ORDER.map((id) => ({
       id,
       status: "working",
@@ -47,6 +49,9 @@ export default function AmbientCosmos({ reducedMotion }: { reducedMotion: boolea
     let cssW = 0;
     let cssH = 0;
     let t0 = performance.now();
+    let lastPaint = 0;
+    // 星のまたたきはゆっくりなので 20fps に間引く
+    const STAR_INTERVAL_MS = 50;
 
     const seedStars = (w: number, h: number) => {
       const count = Math.min(140, Math.max(48, Math.floor((w * h) / 14000)));
@@ -65,6 +70,11 @@ export default function AmbientCosmos({ reducedMotion }: { reducedMotion: boolea
     };
 
     const paint = (now: number) => {
+      if (!reducedMotion && now - lastPaint < STAR_INTERVAL_MS) {
+        raf = requestAnimationFrame(paint);
+        return;
+      }
+      lastPaint = now;
       const t = (now - t0) / 1000;
       ctx.clearRect(0, 0, cssW, cssH);
 

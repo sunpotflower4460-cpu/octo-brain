@@ -25,7 +25,8 @@ export interface StorageAdapter {
   available: boolean; // false ならメモリfオールバック(非致命通知に使う)
   list(): Promise<ConversationMeta[]>;
   get(id: string): Promise<StoredConversation | null>;
-  save(conv: StoredConversation): Promise<void>;
+  // 保存できたら true。失敗(容量不足・IndexedDB 退避等)は false(UI で告知する)
+  save(conv: StoredConversation): Promise<boolean>;
   remove(id: string): Promise<void>;
   clear(): Promise<void>;
 }
@@ -34,10 +35,24 @@ const DB_NAME = "octobrain";
 const STORE = "conversations";
 
 // 再起動時: 保存済み会話の処理中trace(SSE中断)を cancelled へ正規化 (§5.7)。
+// 壊れたレコード(旧版・途中書き込み)で描画が落ちないよう、形も最低限そろえる。
 function normalizeConversation(c: StoredConversation): StoredConversation {
+  const messages = (Array.isArray(c.messages) ? c.messages : [])
+    .filter(
+      (m): m is ChatMessage =>
+        m !== null && typeof m === "object" && (m.role === "user" || m.role === "assistant"),
+    )
+    .map((m) => ({
+      ...m,
+      id: typeof m.id === "string" ? m.id : crypto.randomUUID(),
+      content: typeof m.content === "string" ? m.content : "",
+    }));
   return {
     ...c,
-    messages: c.messages.map((m) =>
+    title: typeof c.title === "string" ? c.title : "会話",
+    summary: typeof c.summary === "string" ? c.summary : "",
+    draft: typeof c.draft === "string" ? c.draft : "",
+    messages: messages.map((m) =>
       m.trace
         ? { ...m, streaming: false, trace: normalizeStaleTrace(m.trace) }
         : { ...m, streaming: false },
@@ -62,6 +77,7 @@ function createMemoryAdapter(available: boolean): StorageAdapter {
     },
     async save(conv) {
       mem.set(conv.id, conv);
+      return true;
     },
     async remove(id) {
       mem.delete(id);
@@ -109,8 +125,9 @@ export async function createStorage(): Promise<StorageAdapter> {
     async save(conv) {
       try {
         await db.put(STORE, conv);
+        return true;
       } catch {
-        /* 保存失敗は非致命 */
+        return false; // 呼び出し側が「保存されていない」表示に切り替える
       }
     },
     async remove(id) {

@@ -157,7 +157,12 @@ export default function SettingsPanel({
           </button>
           <button
             type="button"
-            onClick={onDeleteData}
+            onClick={() => {
+              // 取り消せない操作なので確認する(会話はこの端末にしか無い)
+              if (window.confirm("この端末の会話をすべて削除します。元に戻せません。よろしいですか?")) {
+                onDeleteData();
+              }
+            }}
             className="w-full text-left min-h-[44px] px-3 rounded-[var(--radius-sm)] text-sm text-[var(--danger)] hover:bg-[var(--surface-1)]"
           >
             ローカル会話データを削除
