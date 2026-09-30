@@ -168,7 +168,7 @@ describe("runAnalyze パイプライン (P1.5)", () => {
 
   it("verifier が修正すると verified=modified", async () => {
     mockedCall.mockImplementation(
-      dispatch("general", OK_JSON, SYNTH_TENSION, "最終回答の本文") as unknown as typeof callModel,
+      dispatch("general", OK_JSON, SYNTH_TENSION, "最終回答本文。") as unknown as typeof callModel,
     );
     const { env } = makeEnv();
 
@@ -178,7 +178,7 @@ describe("runAnalyze パイプライン (P1.5)", () => {
     );
 
     expect(res.meta.verified).toBe("modified");
-    expect(res.answer).toBe("最終回答の本文");
+    expect(res.answer).toBe("最終回答本文。");
   });
 
   it("synth が出力上限で切れたら meta.warnings に synth_truncated", async () => {

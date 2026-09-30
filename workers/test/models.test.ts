@@ -43,7 +43,8 @@ describe("LUNA_SYNTH_REASONING(統合脳だけ推論オン)", () => {
   it("synth だけ推論 low にし、上限に推論の予算を足す", () => {
     const synth = modelFor("synth", env);
     expect(synth.extraBody).toEqual({ reasoning_effort: "low" });
-    expect(synth.maxTokens).toBe(2000 + 4000);
+    expect(synth.maxTokens).toBe(2000);
+    expect(synth.reasoningBudget).toBe(4000);
   });
   it("ほかの役割は推論なしのまま", () => {
     expect(modelFor("node", env).extraBody).toEqual({ reasoning_effort: "none" });

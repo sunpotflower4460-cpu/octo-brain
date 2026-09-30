@@ -37,7 +37,7 @@ export interface Lens {
 
 // §4.1 の表(order 0〜7)。内部verbは「内部動詞」列をそのまま使う。
 export const NODE_DEFS: Lens[] = [
-  { id: "reason", verb: "感情を除き、事実と数字だけで状況を切り分ける", uiName: "論理", emoji: "🧠", square: "see", axis: "time" },
+  { id: "reason", verb: "判断を左右するのに、入力からはまだ確かめられていない事実・数字・前提を特定する", uiName: "論理", emoji: "🧠", square: "see", axis: "time" },
   { id: "emotion", verb: "言葉の裏で本当に感じていることを探り当てる", uiName: "心", emoji: "💧", square: "feel", axis: "heart" },
   { id: "risk", verb: "見えていない危うさ、引き返せなくなる地点を見積もる", uiName: "盾", emoji: "🛡️", square: "see", axis: "motion" },
   { id: "empathy", verb: "本人の味方として、そのままの気持ちを受け止めて言葉にする", uiName: "友", emoji: "🤝", square: "feel", axis: "soul" },
@@ -119,6 +119,7 @@ export function planQuorum(plan: Plan): number {
 export const COMMON_NODE_SYSTEM = `あなたはOctoBrainの分析レンズです。与えられたタスクだけを実行してください。
 - 出力は指定のJSONのみ。前置き・後書き・コードフェンス禁止
 - opinions は最大3件。各 claim・why は60字以内。weight は0〜1の確信度
+- 入力に書かれていることの言い換え・要約は意見にしない。入力から一歩踏み込んだ指摘だけを書く
 - わからない場合は opinions を空にし flag に "insufficient_input" を設定`;
 
 // 出力スキーマ (§4.1)。フラット・最大3・キー名固定(軽量モデルが崩れないように)。

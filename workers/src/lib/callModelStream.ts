@@ -26,7 +26,8 @@ export async function* callModelStream(
   opts: CallModelOpts,
 ): AsyncGenerator<string, void, unknown> {
   const cfg = opts.modelOverride ?? modelFor(role, opts.env);
-  const maxTokens = opts.maxTokens ?? cfg.maxTokens;
+  // 推論の予算は上書きされた上限にも上乗せする(推論で本文が空にならないように)
+  const maxTokens = (opts.maxTokens ?? cfg.maxTokens) + (cfg.reasoningBudget ?? 0);
   const apiKey = readKey(opts.env, cfg.keyEnv);
   const req = buildStreamRequest(cfg, messages, maxTokens, apiKey);
 
