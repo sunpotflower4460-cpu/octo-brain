@@ -98,3 +98,11 @@ describe("境界の但し書きの誤判定を防ぐ", () => {
     expect(detectBoundary("今日の天気は?")).toBe("recency");
   });
 });
+
+describe("末尾に紛れた記号", () => {
+  it("⟂ のような数学記号が末尾にあれば除く", () => {
+    const r = polishAnswer("話せる範囲で聞かせて。\u27C2", "x");
+    expect(r.text).toBe("話せる範囲で聞かせて。");
+    expect(r.fixes).toContain("odd_chars_fixed");
+  });
+});
