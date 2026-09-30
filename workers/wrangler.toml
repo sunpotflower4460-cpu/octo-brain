@@ -36,6 +36,9 @@ DEEP_PLAN_ENABLED = "true"
 DAILY_BUDGET_USD = "3"
 # MODEL_PROFILE: "deepseek" | "luna"。未指定なら OPENAI_API_KEY の有無で自動(あれば luna)
 # MODEL_PROFILE = "luna"
+# LUNA_SYNTH_REASONING: luna 構成で統合脳だけ推論をオン("none" | "low" | "medium" | "high")。
+# 質は上がり得るが推論トークン分の原価と待ち時間が増える(docs/pricing_notes.md)
+# LUNA_SYNTH_REASONING = "low"
 
 # IP 単位のバースト制限(Cloudflare Rate Limiting)。60秒あたり limit 回まで。
 # namespace_id はアカウント内で一意な任意の整数文字列。

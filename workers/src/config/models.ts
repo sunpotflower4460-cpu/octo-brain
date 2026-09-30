@@ -112,8 +112,24 @@ export function activeProfile(env: Record<string, unknown>): ModelProfile {
   return typeof openaiKey === "string" && openaiKey.length > 0 ? "luna" : "deepseek";
 }
 
+// 統合脳(synth)だけ推論をオンにする運用スイッチ(luna 構成のみ)。
+// LUNA_SYNTH_REASONING = "none"(既定) | "low" | "medium" | "high"。
+// 推論トークンは出力として課金され max_completion_tokens も消費するため、本文分(2000)に
+// 推論の予算を足す。ほかの役割は狭い作業なので推論なし(並列8本の遅延と原価を増やさない)。
+const SYNTH_REASONING_BUDGET: Record<string, number> = { low: 4000, medium: 8000, high: 16000 };
+
 export function modelFor(role: ModelRole, env: Record<string, unknown>): ModelConfig {
-  return PROFILES[activeProfile(env)][role];
+  const profile = activeProfile(env);
+  const cfg = PROFILES[profile][role];
+  const effort = env.LUNA_SYNTH_REASONING;
+  if (profile === "luna" && role === "synth" && typeof effort === "string" && effort in SYNTH_REASONING_BUDGET) {
+    return {
+      ...cfg,
+      extraBody: { reasoning_effort: effort },
+      maxTokens: cfg.maxTokens + SYNTH_REASONING_BUDGET[effort],
+    };
+  }
+  return cfg;
 }
 
 // ノード多様化プール (P4)。node役割に複数社の軽量モデルを持たせ、pickNodeModel が

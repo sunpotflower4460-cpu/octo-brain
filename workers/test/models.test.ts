@@ -37,3 +37,22 @@ describe("activeProfile", () => {
     expect(activeProfile({ MODEL_PROFILE: "gpt" })).toBe("deepseek");
   });
 });
+
+describe("LUNA_SYNTH_REASONING(統合脳だけ推論オン)", () => {
+  const env = { OPENAI_API_KEY: "k", LUNA_SYNTH_REASONING: "low" };
+  it("synth だけ推論 low にし、上限に推論の予算を足す", () => {
+    const synth = modelFor("synth", env);
+    expect(synth.extraBody).toEqual({ reasoning_effort: "low" });
+    expect(synth.maxTokens).toBe(2000 + 4000);
+  });
+  it("ほかの役割は推論なしのまま", () => {
+    expect(modelFor("node", env).extraBody).toEqual({ reasoning_effort: "none" });
+    expect(modelFor("verifier", env).maxTokens).toBe(2000);
+  });
+  it("deepseek 構成・不正値では無視する", () => {
+    expect(modelFor("synth", { LUNA_SYNTH_REASONING: "low" }).model).not.toBe("gpt-6-luna");
+    expect(modelFor("synth", { OPENAI_API_KEY: "k", LUNA_SYNTH_REASONING: "max" }).extraBody).toEqual({
+      reasoning_effort: "none",
+    });
+  });
+});
