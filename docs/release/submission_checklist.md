@@ -38,7 +38,7 @@
 - ☐ `docs/release/ios_build_runbook.md` に沿って 署名(Team)→ 実機確認(Safe Area/キーボード/fps/発熱/日本語表示)→ Archive → TestFlight
 
 ### B4. 課金(任意・要 App Store Connect)
-- ☐ `docs/release/iap_plan.md` に沿って products 作成・RevenueCat 接続・サンドボックス検証(未課金でも完結を維持)
+- ☑ 課金なし(完全無料)。IAP は不採用(`iap_plan.md`)。App Store Connect の価格は「無料」
 
 ### B5. App Store Connect 入力
 - ☐ `docs/release/app_store_connect.md` を転記(基本情報・説明・キーワード・App Privacy・年齢・**審査ノート**)

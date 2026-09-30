@@ -91,7 +91,7 @@ async function runOne(
         env: opts.env,
         signal: ctrl.signal,
         collector: opts.collector,
-        modelOverride: pickNodeModel(index),
+        modelOverride: pickNodeModel(index, opts.env),
       },
     );
     const parsed = parseNodeResponse(id, res.text);

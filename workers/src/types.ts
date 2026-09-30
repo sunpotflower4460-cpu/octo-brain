@@ -40,7 +40,7 @@ export interface CostSink {
 
 // ---- 深化アーキテクチャ (P1.5, docs/01_depth_design.md) ----
 
-// プラン: light=無料(2軸4腕) / deep=有料(4軸8腕)
+// プラン: light=2軸4腕(1単位) / deep=4軸8腕(2単位)。どちらも無料(課金なし運用)
 export type Plan = "light" | "deep";
 
 // ドメイン(相談の領域)。Routerが分類し、light時の軸選択に使う。

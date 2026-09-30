@@ -3,7 +3,7 @@
 // 非ストリーミングの callModel と同じく、終了時に collector へ原価ログを1件記録する。
 
 import {
-  MODELS,
+  modelFor,
   estimateCost,
   type ModelConfig,
   type ModelRole,
@@ -25,7 +25,7 @@ export async function* callModelStream(
   messages: ChatMessage[],
   opts: CallModelOpts,
 ): AsyncGenerator<string, void, unknown> {
-  const cfg = opts.modelOverride ?? MODELS[role];
+  const cfg = opts.modelOverride ?? modelFor(role, opts.env);
   const maxTokens = opts.maxTokens ?? cfg.maxTokens;
   const apiKey = readKey(opts.env, cfg.keyEnv);
   const req = buildStreamRequest(cfg, messages, maxTokens, apiKey);
@@ -102,7 +102,7 @@ function buildStreamRequest(
             ...cfg.extraBody,
             model: cfg.model,
             messages: messages.map((m) => ({ role: m.role, content: m.content })),
-            max_tokens: maxTokens,
+            [cfg.maxTokensParam ?? "max_tokens"]: maxTokens,
             stream: true,
             stream_options: { include_usage: true },
           }),

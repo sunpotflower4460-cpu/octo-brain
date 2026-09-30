@@ -54,6 +54,31 @@ export async function logCost(
     kind: meta.kind,
   };
   await kv.put(key, JSON.stringify(value), { expirationTtl: COST_TTL_SEC });
+  // 全体の1日原価(課金なし運用の天井)。失敗・中断も含め、実際に払った分を積む
+  await addDailySpend(kv, value.totalCost, now);
+}
+
+// ---- 全体の1日原価(課金なし運用のサーキットブレーカー用) ----
+// マイクロドル(整数)で積む。KV は結果整合なので同時多発では多少取りこぼすが、天井の目安には十分。
+const SPEND_TTL_SEC = 3 * 24 * 60 * 60;
+
+export function spendKey(now: Date): string {
+  return `spend:${yyyymmdd(now)}`;
+}
+
+export async function readDailySpendUsd(kv: KVNamespace, now: Date): Promise<number> {
+  const cur = await kv.get(spendKey(now));
+  const micro = cur ? parseInt(cur, 10) : 0;
+  return Number.isFinite(micro) ? micro / 1_000_000 : 0;
+}
+
+async function addDailySpend(kv: KVNamespace, usd: number, now: Date): Promise<void> {
+  if (!(usd > 0)) return;
+  const key = spendKey(now);
+  const cur = await kv.get(key);
+  const parsed = cur ? parseInt(cur, 10) : 0;
+  const next = (Number.isFinite(parsed) ? parsed : 0) + Math.round(usd * 1_000_000);
+  await kv.put(key, String(next), { expirationTtl: SPEND_TTL_SEC });
 }
 
 // 失敗・中断・予算超過で途中終了したリクエストの原価を記録する(ベストエフォート)。

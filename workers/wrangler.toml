@@ -30,8 +30,12 @@ REQUEST_BUDGET_MS = "30000"
 # IP_DAILY_QUOTA: 同一IPの1日あたり上限(クォータ単位)。clientId 使い捨て濫用の原価の天井。
 # 携帯回線の CGNAT で複数人が同一IPになり得るため個人の月間枠より大きく取る
 IP_DAILY_QUOTA = "300"
-# DEEP_PLAN_ENABLED: deep プランの提供可否。IAP 導入時に "false" にして Pro 限定へ切替える
+# DEEP_PLAN_ENABLED: deep プランの提供可否。原価が厳しいときに "false" で止める運用スイッチ
 DEEP_PLAN_ENABLED = "true"
+# DAILY_BUDGET_USD: 全体の1日原価の上限(課金なし運用の天井)。超えると当日は 503 で受付停止
+DAILY_BUDGET_USD = "3"
+# MODEL_PROFILE: "deepseek" | "luna"。未指定なら OPENAI_API_KEY の有無で自動(あれば luna)
+# MODEL_PROFILE = "luna"
 
 # IP 単位のバースト制限(Cloudflare Rate Limiting)。60秒あたり limit 回まで。
 # namespace_id はアカウント内で一意な任意の整数文字列。

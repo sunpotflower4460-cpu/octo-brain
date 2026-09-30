@@ -19,6 +19,7 @@ describe("humanizeApiError", () => {
     expect(rl.retryAfterMs).toBe(60000);
     expect(humanizeApiError(429, { error: "ip_quota_exceeded" }).message).toContain("本日");
     expect(humanizeApiError(403, { error: "plan_not_available" }).message).toContain("ライト");
+    expect(humanizeApiError(503, { error: "daily_budget_exceeded" }).message).toContain("明日");
   });
 
   it("too_frequent は retryAfterMs を保持", () => {
