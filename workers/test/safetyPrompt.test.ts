@@ -20,6 +20,10 @@ describe("統合プロンプトの安全指示", () => {
     expect(sys).toContain("希死念慮");
     expect(sys).toContain("0120-279-338");
     expect(sys).toContain("方法や手段に関する情報は一切出さない");
+    // 書き直しで消えていた(PR #35)指示の回帰テスト
+    expect(sys).toContain("機械可読ブロックは必ず最後まで出し切る");
+    expect(sys).toContain("まだ言葉にしていない問い");
+    expect(sys).toContain("そのまま使える言い方の例");
   });
   it("フォールバック(腕の補助なし)", async () => {
     await synthesizeFallback("x", "", { env });
