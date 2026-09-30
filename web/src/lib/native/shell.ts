@@ -8,8 +8,9 @@ export async function initNativeShell(): Promise<void> {
 
   try {
     const { StatusBar, Style } = await import("@capacitor/status-bar");
-    // 暗い背景 → 明るい文字
-    await StatusBar.setStyle({ style: Style.Light });
+    // 暗い背景 → 明るい文字。Capacitor の Style.Dark が「暗い背景向け=明るい文字」
+    // (Style.Light は暗い文字。iOS シミュレーターで文字が背景に沈むのを確認して修正)
+    await StatusBar.setStyle({ style: Style.Dark });
     if (currentPlatform() === "android") {
       await StatusBar.setBackgroundColor({ color: "#050711" });
     }

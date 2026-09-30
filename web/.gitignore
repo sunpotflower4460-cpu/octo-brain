@@ -4,6 +4,11 @@ dist/
 .env
 
 # Capacitor ネイティブプロジェクト(P7 で生成。実機ビルド成果物は別管理)
-/ios/
+# /ios/ はコミットする(Info.plist・PrivacyInfo・署名設定を管理するため)。生成物だけ除外
+/ios/App/App/public/
+/ios/App/App/capacitor.config.json
+/ios/App/App/config.xml
+/ios/DerivedData/
+/ios/App/build/
 /android/
 .gradle/
