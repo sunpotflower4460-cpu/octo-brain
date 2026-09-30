@@ -83,3 +83,18 @@ describe("DepthStreamCutter (ストリームでの TENSION/SUMMARY 切り出し)
     expect(result.resonance?.root).toBe("根");
   });
 });
+
+describe("DepthStreamCutter のサロゲートペア", () => {
+  it("絵文字を2回の送信に分割しない", () => {
+    const cutter = new DepthStreamCutter();
+    const outs: string[] = [];
+    for (const d of ["つらいよね😭", "😭😭", "本当に。", "もう少し続く文章です。"]) outs.push(cutter.push(d));
+    outs.push(cutter.flushRemaining());
+    for (const o of outs) {
+      if (o.length === 0) continue;
+      expect(/[\uD800-\uDBFF]$/.test(o)).toBe(false);
+      expect(/^[\uDC00-\uDFFF]/.test(o)).toBe(false);
+    }
+    expect(outs.join("")).toBe("つらいよね😭😭😭本当に。もう少し続く文章です。");
+  });
+});
