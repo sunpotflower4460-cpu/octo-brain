@@ -2,16 +2,18 @@
 // App Review では「不適切な出力を報告する導線」(ガイドライン1.2)と、
 // プライバシーポリシー/利用規約への導線が求められる。
 
+import { API_BASE } from "../lib/api";
+
 // 表示バージョン。ネイティブ(iOS)のバージョンは Xcode/Info.plist 側が正。ここは表示用。
 export const APP_VERSION = "1.0.0";
 
 // 問い合わせ・不適切コンテンツ報告先。← あなたの連絡先に変更可(App Review では実在する連絡先が必要)。
 export const SUPPORT_EMAIL = "sunpotflower4460@gmail.com";
 
-// プライバシーポリシー / 利用規約の公開URL。ホスティング後に実URLへ差し替える
-// (例: GitHub Pages)。"SET_ME" のままなら UI にリンクを出さない。
-export const PRIVACY_URL = "SET_ME";
-export const TERMS_URL = "SET_ME";
+// プライバシーポリシー / 利用規約の公開URL。API Worker が workers/legal/*.md を
+// HTML で配信している(App Store Connect にも同じURLを登録する)。
+export const PRIVACY_URL = `${API_BASE}/legal/privacy`;
+export const TERMS_URL = `${API_BASE}/legal/terms`;
 
 export function isConfiguredUrl(url: string): boolean {
   return /^https?:\/\//.test(url) && !url.includes("SET_ME");

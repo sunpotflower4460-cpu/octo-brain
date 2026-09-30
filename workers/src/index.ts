@@ -26,6 +26,10 @@ import {
 import { combineAbortSignals } from "./lib/abort.js";
 import type { Context } from "hono";
 import type { ChatMessage, Env, Plan } from "./types.js";
+import { legalPage } from "./legal/render.js";
+import privacyMd from "../legal/privacy_policy.md";
+import termsMd from "../legal/terms_of_use.md";
+import supportMd from "../legal/support.md";
 
 const VERSION = "0.0.0-p5";
 
@@ -52,6 +56,21 @@ app.use("/api/*", (c, next) => {
     allowHeaders: ["Content-Type"],
   })(c, next);
 });
+
+// 法務文書・サポート(App Store Connect のプライバシーポリシーURL / サポートURL)。
+// 正本は workers/legal/*.md。デプロイで反映される。
+const LEGAL_PAGES: Record<string, { title: string; md: string }> = {
+  "/legal/privacy": { title: "プライバシーポリシー — OctoBrain", md: privacyMd },
+  "/legal/terms": { title: "利用規約 — OctoBrain", md: termsMd },
+  "/support": { title: "サポート — OctoBrain", md: supportMd },
+};
+for (const [path, page] of Object.entries(LEGAL_PAGES)) {
+  app.get(path, (c) =>
+    c.html(legalPage(page.title, page.md), 200, {
+      "cache-control": "public, max-age=300",
+    }),
+  );
+}
 
 // ヘルスチェック
 app.get("/api/health", (c) => c.json({ ok: true, version: VERSION }));

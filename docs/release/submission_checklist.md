@@ -20,7 +20,7 @@
 ## B. 手動で残る作業(順番どおり)☐
 
 ### B0. 事前に埋める値(`[要記入]`/`SET_ME`)
-- ☐ `docs/legal/*` の事業者名・最終更新日・管轄・LLM プロバイダー名
+- ☑ `workers/legal/*` の最終更新日・管轄・LLM プロバイダー名(事業者名は「App Store に表示される販売者」で記載済み。屋号を使う場合は差し替え)
 - ☐ `web/src/config/appInfo.ts` の `PRIVACY_URL` / `TERMS_URL`(ホスティング後の実URL)、必要なら `SUPPORT_EMAIL`
 - ☐ `web/.env.production` の `VITE_API_BASE`(本番 Workers URL)
 - ☐ `docs/release/app_store_connect.md` の SKU・サポートURL 等
@@ -31,7 +31,7 @@
 - ☐ `wrangler secret put`(各プロバイダーキー)/ `npm run deploy`
 
 ### B2. ホスティング(プライバシー/規約の公開URL)
-- ☐ `docs/legal/*.md` を公開URL化(例: GitHub Pages)→ App Store Connect と `appInfo.ts` に設定
+- ☑ 公開URL化済み: https://octo-brain.sunpotflower4460.workers.dev/legal/privacy ・ /legal/terms ・ /support(`appInfo.ts` は API_BASE から自動設定)
 
 ### B3. iOS ビルド(要 macOS/Xcode/実機)
 - ☐ `docs/release/ios_build_runbook.md` に沿って `cap add ios` → assets 生成 → 署名 → 実機確認(Safe Area/キーボード/fps/発熱)→ Archive → TestFlight

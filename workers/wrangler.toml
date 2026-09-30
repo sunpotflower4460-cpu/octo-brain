@@ -5,6 +5,12 @@ compatibility_date = "2024-12-01"
 # 以降のモデル呼び出し(=原価)とロックを即座に止める。無いと切断後も最後まで課金が続く。
 compatibility_flags = ["enable_request_signal"]
 
+# 法務文書(legal/*.md)を文字列モジュールとして取り込み、/legal/* で公開する
+[[rules]]
+type = "Text"
+globs = ["**/*.md"]
+fallthrough = true
+
 # 環境変数 (シークレットではない設定)
 # ENVIRONMENT の既定は production(安全側)。ローカル開発では .dev.vars の
 # ENVIRONMENT=development が上書きし、/api/dev/* が有効になる。

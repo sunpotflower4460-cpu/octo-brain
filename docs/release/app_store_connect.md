@@ -43,7 +43,8 @@ OctoBrain は、ひとつの問いに対して 8 つの異なる視点(論理・
 
 ## 5. サポート/マーケティングURL
 
-- サポートURL: SET_ME(プライバシーポリシーのホスティング先 or 簡単な案内ページ)
+- サポートURL: https://octo-brain.sunpotflower4460.workers.dev/support
+- プライバシーポリシーURL: https://octo-brain.sunpotflower4460.workers.dev/legal/privacy
 - マーケティングURL(任意): SET_ME
 
 ## 6. App Privacy(データ収集の申告)
