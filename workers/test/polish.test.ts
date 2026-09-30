@@ -59,3 +59,20 @@ describe("寄り添いモードでは冒頭の引用を外す", () => {
     expect(polishAnswer("「消えたいって毎晩思う」\n\n本文", input).text).toContain("「消えたい");
   });
 });
+
+describe("LeadingQuoteFilter(ストリーム中の冒頭引用を流さない)", async () => {
+  const { LeadingQuoteFilter } = await import("../src/lib/polish.js");
+  const run = (chunks: string[]) => {
+    const f = new LeadingQuoteFilter();
+    return chunks.map((c) => f.push(c)).join("") + f.flush();
+  };
+  it("引用段落が細切れに届いても捨て、本文だけを流す", () => {
+    expect(run(["「消え", "たいって", "毎晩思う」", "\n\n", "話して", "くれて"])).toBe("話してくれて");
+  });
+  it("引用で始まらなければそのまま", () => {
+    expect(run(["話して", "くれて"])).toBe("話してくれて");
+  });
+  it("閉じない引用はためすぎず最後に流す", () => {
+    expect(run(["「閉じない引用", "のまま終わる"])).toBe("「閉じない引用のまま終わる");
+  });
+});

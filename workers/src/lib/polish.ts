@@ -44,3 +44,43 @@ export function polishAnswer(
   }
   return { text, fixes };
 }
+
+// ストリーミング用: 冒頭の引用段落を流さずに捨てるフィルター(寄り添いモード用)。
+// 完了時の polishAnswer でも外すが、ストリーム中に一瞬表示されてから消えるちらつきを防ぐ。
+const QUOTE_OPENERS = ["「", "『", "“", '"'];
+const MAX_HOLD = 400; // これ以上たまっても判定できなければ、そのまま流す
+// ストリームでは段落の終わり(改行)まで確定しないので、文末($)では判定しない
+const QUOTE_LINE = /^(?:「[^」\n]+」|『[^』\n]+』|“[^”\n]+”|"[^"\n]+")[^\S\n]*\n\s*/;
+
+export class LeadingQuoteFilter {
+  private buf = "";
+  private decided = false;
+
+  push(t: string): string {
+    if (this.decided) return t;
+    this.buf += t;
+    const s = this.buf.trimStart();
+    if (s.length === 0) return "";
+    if (!QUOTE_OPENERS.includes(s[0])) return this.release(this.buf);
+    // 引用の段落が閉じる(改行が来る)まで待ち、段落ごと捨てる
+    const m = QUOTE_LINE.exec(s);
+    if (m) {
+      const rest = s.slice(m[0].length);
+      // 引用の直後がまだ空白だけなら、本文の始まりまで待つ
+      if (rest.length === 0) return "";
+      return this.release(rest);
+    }
+    if (this.buf.length > MAX_HOLD) return this.release(this.buf);
+    return "";
+  }
+
+  flush(): string {
+    return this.decided ? "" : this.release(this.buf);
+  }
+
+  private release(out: string): string {
+    this.decided = true;
+    this.buf = "";
+    return out;
+  }
+}
