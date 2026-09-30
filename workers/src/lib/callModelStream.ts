@@ -95,6 +95,7 @@ function buildStreamRequest(
             authorization: `Bearer ${apiKey}`,
           },
           body: JSON.stringify({
+            ...cfg.extraBody,
             model: cfg.model,
             messages: messages.map((m) => ({ role: m.role, content: m.content })),
             max_tokens: maxTokens,
