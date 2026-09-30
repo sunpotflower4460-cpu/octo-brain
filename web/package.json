@@ -13,9 +13,11 @@
   "dependencies": {
     "@capacitor/app": "^6.0.3",
     "@capacitor/core": "^6.2.1",
+    "@capacitor/haptics": "^6.0.3",
     "@capacitor/ios": "^6.2.1",
     "@capacitor/keyboard": "^6.0.4",
     "@capacitor/preferences": "^6.0.4",
+    "@capacitor/share": "^6.0.4",
     "@capacitor/splash-screen": "^6.0.4",
     "@capacitor/status-bar": "^6.0.3",
     "idb": "^8.0.3",

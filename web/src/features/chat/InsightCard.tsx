@@ -5,6 +5,7 @@ import Disclosure from "../../components/Disclosure";
 import IconButton from "../../components/IconButton";
 import type { AnalyzeMeta } from "../../types";
 import { SUPPORT_EMAIL, reportMailto } from "../../config/appInfo";
+import { shareText } from "../../lib/native/feedback";
 
 // OctoBrain の回答は通常の吹き出しではなく、静かで読みやすい Insight Card (§7.1)。
 export default function InsightCard({
@@ -41,16 +42,7 @@ export default function InsightCard({
   };
 
   const share = async () => {
-    const nav = navigator as Navigator & { share?: (d: { text: string }) => Promise<void> };
-    if (nav.share) {
-      try {
-        await nav.share({ text: content });
-        return;
-      } catch {
-        /* キャンセル等 */
-      }
-    }
-    void copy();
+    if (!(await shareText(content))) void copy();
   };
 
   return (

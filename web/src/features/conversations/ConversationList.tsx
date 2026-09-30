@@ -75,7 +75,7 @@ export default function ConversationList({
                         }
                         if (e.key === "Escape") setEditing(null);
                       }}
-                      className="flex-1 bg-[var(--surface-1)] border border-[var(--line-strong)] rounded px-2 py-1.5 text-sm text-[var(--text-primary)]"
+                      className="flex-1 bg-[var(--surface-1)] border border-[var(--line-strong)] rounded px-2 py-1.5 text-[16px] text-[var(--text-primary)]"
                       aria-label="会話名"
                     />
                     <IconBtn label="決定" onClick={() => { onRename(m.id, draft.trim() || m.title); setEditing(null); }}>
