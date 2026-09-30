@@ -7,7 +7,7 @@ import { runNodes } from "./runNodes.js";
 import { synthesize, synthesizeFallback, validResonance } from "./synthesize.js";
 import { verify } from "./verify.js";
 import { polishAnswer } from "./polish.js";
-import { detectCare, type CareKind } from "./care.js";
+import { shouldOfferSupport, detectCare, type CareKind } from "./care.js";
 import { CostCollector, incrementQuota, logCost, logFailedCost } from "./costlog.js";
 import { QUOTA_UNITS } from "./guard.js";
 import { detectBoundary, withBoundaryPrefix, type BoundaryKind } from "./boundary.js";
@@ -27,6 +27,8 @@ export interface AnalyzeInput {
   summary: string;
   plan: Plan;
   clientId: string;
+  // この会話で寄り添いモードになった回数(窓口を出すかの判断に使う)
+  careTurns?: number;
 }
 
 export interface AnalyzeDeps {
@@ -55,8 +57,10 @@ export function toNodeView(n: NodeResult): AnalyzeNodeView {
 export interface AnalyzeMeta {
   // 予算逼迫のため軽いモード(ライト・推論なし)で答えた
   economy?: boolean;
-  // 繊細な相談として寄り添いモードで答えた(アプリは視点一覧・深掘りを隠し、窓口を回答の後に添える)
+  // 繊細な相談として寄り添いモードで答えた(アプリは視点一覧・深掘りを隠す)
   care?: CareKind;
+  // 声で話せる場所(相談窓口)を添えてよい(アプリはこのときだけ窓口カードを出す)
+  careOffer?: boolean;
   plan: Plan;
   domain: Domain;
   quorum: string;
@@ -131,11 +135,13 @@ async function runAnalyzeInner(
         env: deps.env,
         collector,
         signal: deps.signal,
+        careTurns: req.careTurns,
       })
     : await synthesize(req.input, req.summary, run.nodes, {
         env: deps.env,
         collector,
         signal: deps.signal,
+        careTurns: req.careTurns,
       });
 
   // ④ 検証(表面のみ最小修正)
@@ -203,6 +209,7 @@ async function runAnalyzeInner(
   if (warnings.length > 0) meta.warnings = warnings;
   if (deps.economy) meta.economy = true;
   if (care) meta.care = care;
+  if (shouldOfferSupport(care, req.careTurns ?? 0, polished.text)) meta.careOffer = true;
 
   return {
     answer,

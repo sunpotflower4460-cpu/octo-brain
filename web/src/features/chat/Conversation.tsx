@@ -67,9 +67,10 @@ export default function Conversation({
             )}
 
             {/* 寄り添いモード: まず回答で向き合い、声で話せる場所はその後ろに選択肢として置く。
-                サーバーが判定できなかった場合(通信失敗等)もアプリ側の検出で出す */}
+                出すのはサーバーが「添えてよい」と判断したとき(危機、または同じ会話で繰り返しの吐露)。
+                通信失敗でサーバーの判断が無いときは、アプリ側で危機レベルの言葉だけを見て出す */}
             {!msg.streaming &&
-              (msg.meta?.care === "crisis" ||
+              (msg.meta?.careOffer === true ||
                 (!msg.meta && detectCrisis(msg.sourceInput ?? ""))) && (
                 <div className="mt-3">
                   <CrisisSupport />

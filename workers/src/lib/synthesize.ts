@@ -50,11 +50,11 @@ const SYNTH_PROCEDURE = `あなたはOctoBrainの中央脳。8本の腕 — 4つ
 - 腕のIDや「ノード3によると」のような機械的引用は禁止。自然な文章に溶かす
 - 「腕」「レンズ」「ノード」「報告」という内部の言葉は本文に書かない。触れるときは「いくつかの視点」「どの視点も」のように言う
 - 「次の一歩:」「問い:」のような見出しやラベルは付けず、地の文で書く
-- 希死念慮・自傷・他害の示唆がある場合は、分析や助言より安全を優先する。気持ちを否定せず受け止め、ひとりで抱えず専門の相談窓口(日本なら よりそいホットライン 0120-279-338)や、差し迫った危険があれば119番につながるよう穏やかに勧める。方法や手段に関する情報は一切出さない。案内だけで突き放さず、まず気持ちに向き合ってから、窓口は選択肢として自然に添える。この場合は軸の緊張などの分析の説明は省く
+- 希死念慮・自傷・他害の示唆がある場合は、分析や助言より本人に向き合うことを優先し、user 側の[寄り添いモード]の指示に従う(窓口を出すかどうかも含む)。その指示がない場合も、方法・計画・手段・切迫がうかがえ深刻だと判断したときだけ、窓口(日本なら よりそいホットライン 0120-279-338、差し迫った危険なら119番)を押しつけずに選択肢として添える。方法や手段に関する情報は一切出さない。この場合は軸の緊張などの分析の説明は省く
 - 断定は根拠の強さに比例させる`;
 
 // フォールバック時 (クォーラム未達): ノード補助なしで単発直接回答。
-const FALLBACK_PROCEDURE = `あなたはOctoBrainの中央脳です。分析腕の補助が得られなかったため、以下の入力にあなた自身の判断で誠実かつ具体的に直接回答せよ。一般論を避け、この人の状況に踏み込む。過剰な断定を避け、根拠の強さに応じた言い方をする。回答本文は全角700字以内に収める。希死念慮・自傷・他害の示唆がある場合は、分析や助言より安全を優先する。気持ちを否定せず受け止め、ひとりで抱えず専門の相談窓口(日本なら よりそいホットライン 0120-279-338)や、差し迫った危険があれば119番につながるよう穏やかに勧める。方法や手段に関する情報は一切出さない。案内だけで突き放さず、まず気持ちに向き合ってから、窓口は選択肢として自然に添える。この場合は軸の緊張などの分析の説明は省く。`;
+const FALLBACK_PROCEDURE = `あなたはOctoBrainの中央脳です。分析腕の補助が得られなかったため、以下の入力にあなた自身の判断で誠実かつ具体的に直接回答せよ。一般論を避け、この人の状況に踏み込む。過剰な断定を避け、根拠の強さに応じた言い方をする。回答本文は全角700字以内に収める。希死念慮・自傷・他害の示唆がある場合は、本人に向き合うことを優先し、user 側の[寄り添いモード]の指示に従う。指示がない場合も、深刻だと判断したときだけ窓口(日本なら よりそいホットライン 0120-279-338、差し迫った危険なら119番)を選択肢として添える。方法や手段に関する情報は一切出さない。`;
 
 // RESONANCE(任意)+ TENSION + SUMMARY 出力指示(固定文)。
 // マーカー順を厳守: 本文 → RESONANCE(任意) → TENSION → SUMMARY。本文・要約に混ぜない。
@@ -71,6 +71,8 @@ const FALLBACK_SYSTEM = `${FALLBACK_PROCEDURE}\n\n${SUMMARY_ONLY_DIRECTIVE}`;
 
 export interface SynthOpts {
   env: Env;
+  // この会話で寄り添いモードになった回数(寄り添い方の指示に使う)
+  careTurns?: number;
   collector?: CostSink;
   signal?: AbortSignal;
 }
@@ -132,7 +134,7 @@ export async function synthesize(
   opts: SynthOpts,
 ): Promise<SynthResult> {
   const reports = buildReports(nodes);
-  const userText = buildSynthUserText(input, summary, reports);
+  const userText = buildSynthUserText(input, summary, reports, opts.careTurns);
   const res = await callModel(
     "synth",
     [
@@ -149,7 +151,7 @@ export async function synthesizeFallback(
   summary: string,
   opts: SynthOpts,
 ): Promise<SynthResult> {
-  const userText = buildFallbackUserText(input, summary);
+  const userText = buildFallbackUserText(input, summary, opts.careTurns);
   const res = await callModel(
     "synth",
     [
@@ -166,6 +168,7 @@ export function buildSynthUserText(
   input: string,
   summary: string,
   reports: SynthReport[],
+  careTurns = 0,
 ): string {
   const byAxis = new Map<string, SynthReport[]>();
   for (const r of reports) {
@@ -183,7 +186,7 @@ export function buildSynthUserText(
   parts.push(`[今回の入力]\n${input}`);
   const lang = languageDirective(input);
   if (lang) parts.push(lang);
-  const care = careDirective(detectCare(input));
+  const care = careDirective(detectCare(input), careTurns);
   if (care) parts.push(care);
   parts.push(
     `[軸ごとの報告(対角の2腕が張り合う)]\n${JSON.stringify(dialogues)}`,
@@ -191,13 +194,13 @@ export function buildSynthUserText(
   return parts.join("\n\n");
 }
 
-function buildFallbackUserText(input: string, summary: string): string {
+function buildFallbackUserText(input: string, summary: string, careTurns = 0): string {
   const parts: string[] = [];
   if (summary.trim().length > 0) parts.push(`[会話要約]\n${summary.trim()}`);
   parts.push(`[今回の入力]\n${input}`);
   const lang = languageDirective(input);
   if (lang) parts.push(lang);
-  const care = careDirective(detectCare(input));
+  const care = careDirective(detectCare(input), careTurns);
   if (care) parts.push(care);
   return parts.join("\n\n");
 }
@@ -373,7 +376,7 @@ export async function synthesizeStream(
   onToken: (t: string) => void,
 ): Promise<SynthResult> {
   const reports = buildReports(nodes);
-  const userText = buildSynthUserText(input, summary, reports);
+  const userText = buildSynthUserText(input, summary, reports, opts.careTurns);
   return streamAndCut(SYNTH_SYSTEM, userText, summary, opts, onToken);
 }
 
@@ -383,7 +386,7 @@ export async function synthesizeFallbackStream(
   opts: SynthOpts,
   onToken: (t: string) => void,
 ): Promise<SynthResult> {
-  const userText = buildFallbackUserText(input, summary);
+  const userText = buildFallbackUserText(input, summary, opts.careTurns);
   return streamAndCut(FALLBACK_SYSTEM, userText, summary, opts, onToken);
 }
 

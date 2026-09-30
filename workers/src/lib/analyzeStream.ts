@@ -8,7 +8,7 @@ import { runNodes } from "./runNodes.js";
 import { synthesizeStream, synthesizeFallbackStream, validResonance } from "./synthesize.js";
 import { verify } from "./verify.js";
 import { polishAnswer } from "./polish.js";
-import { detectCare } from "./care.js";
+import { shouldOfferSupport, detectCare } from "./care.js";
 import { CostCollector, incrementQuota, logCost, logFailedCost } from "./costlog.js";
 import { QUOTA_UNITS } from "./guard.js";
 import { detectBoundary, boundaryPrefix, withBoundaryPrefix } from "./boundary.js";
@@ -83,14 +83,14 @@ async function runAnalyzeStreamInner(
     ? await synthesizeFallbackStream(
         req.input,
         req.summary,
-        { env: deps.env, collector, signal: deps.signal },
+        { env: deps.env, collector, signal: deps.signal, careTurns: req.careTurns },
         onToken,
       )
     : await synthesizeStream(
         req.input,
         req.summary,
         run.nodes,
-        { env: deps.env, collector, signal: deps.signal },
+        { env: deps.env, collector, signal: deps.signal, careTurns: req.careTurns },
         onToken,
       );
 
@@ -156,6 +156,7 @@ async function runAnalyzeStreamInner(
   if (warnings.length > 0) meta.warnings = warnings;
   if (deps.economy) meta.economy = true;
   if (care) meta.care = care;
+  if (shouldOfferSupport(care, req.careTurns ?? 0, polished.text)) meta.careOffer = true;
 
   // ⑥ done(一括JSONと同形)。answer は但し書きを前置きした最終テキスト
   emit("done", {
