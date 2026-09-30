@@ -3,6 +3,8 @@ import InsightCard from "./InsightCard";
 import ProcessDock from "../cognition/ProcessDock";
 import NodePerspectives from "../../components/NodePerspectives";
 import NextThought from "../followups/NextThought";
+import CrisisSupport from "../safety/CrisisSupport";
+import { detectCrisis } from "../../lib/crisis";
 import type { ChatMessage } from "./message";
 import type { ResonancePair } from "../../types";
 
@@ -29,13 +31,21 @@ export default function Conversation({
     <div className="space-y-7">
       {messages.map((msg) =>
         msg.role === "user" ? (
-          <div key={msg.id} className="flex justify-end gap-2">
-            <div className="max-w-[85%] rounded-[var(--radius)] rounded-tr-sm bg-[var(--surface-3)] px-3.5 py-2.5 text-[15px] text-[var(--text-primary)] whitespace-pre-wrap">
-              {msg.content}
+          <div key={msg.id}>
+            <div className="flex justify-end gap-2">
+              <div className="max-w-[85%] rounded-[var(--radius)] rounded-tr-sm bg-[var(--surface-3)] px-3.5 py-2.5 text-[15px] text-[var(--text-primary)] whitespace-pre-wrap">
+                {msg.content}
+              </div>
+              <div className="flex-shrink-0 w-8 h-8 rounded-full bg-[var(--surface-2)] border border-[var(--line-soft)] flex items-center justify-center">
+                <User className="w-4 h-4 text-[var(--text-muted)]" aria-hidden />
+              </div>
             </div>
-            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-[var(--surface-2)] border border-[var(--line-soft)] flex items-center justify-center">
-              <User className="w-4 h-4 text-[var(--text-muted)]" aria-hidden />
-            </div>
+            {/* 危機的な内容には、回答より先に相談窓口を示す */}
+            {detectCrisis(msg.content) && (
+              <div className="mt-3">
+                <CrisisSupport />
+              </div>
+            )}
           </div>
         ) : (
           <div key={msg.id} className="max-w-full">

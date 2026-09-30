@@ -1,9 +1,10 @@
-import { Copy, RotateCcw, Share2, Check } from "lucide-react";
+import { Copy, RotateCcw, Share2, Check, Flag } from "lucide-react";
 import { useState } from "react";
 import Markdown from "../../components/Markdown";
 import Disclosure from "../../components/Disclosure";
 import IconButton from "../../components/IconButton";
 import type { AnalyzeMeta } from "../../types";
+import { SUPPORT_EMAIL, reportMailto } from "../../config/appInfo";
 
 // OctoBrain の回答は通常の吹き出しではなく、静かで読みやすい Insight Card (§7.1)。
 export default function InsightCard({
@@ -22,6 +23,12 @@ export default function InsightCard({
   onRetry?: () => void;
 }) {
   const [copied, setCopied] = useState(false);
+  // 報告: メールアプリを開く。開かない端末向けに宛先も表示する(1.2 報告導線)
+  const [reported, setReported] = useState(false);
+  const report = () => {
+    setReported(true);
+    window.location.href = reportMailto(content);
+  };
 
   const copy = async () => {
     try {
@@ -103,12 +110,25 @@ export default function InsightCard({
           {onRetry && (
             <IconButton icon={RotateCcw} label="再試行" onClick={onRetry} showLabel={false} />
           )}
+          <IconButton icon={Flag} label="この回答を報告" onClick={report} showLabel={false} />
           {meta && (
             <div className="ml-auto">
               <MetaDisclosure meta={meta} />
             </div>
           )}
         </div>
+      )}
+
+      {!streaming && content.length > 0 && reported && (
+        <p className="mt-2 text-[12px] text-[var(--text-muted)] leading-snug" role="status">
+          メールが開かない場合は {SUPPORT_EMAIL} までお送りください。
+        </p>
+      )}
+
+      {!streaming && content.length > 0 && (
+        <p className="mt-2 text-[11px] text-[var(--text-muted)] leading-snug">
+          AI による生成です。誤りを含むことがあり、医療・法律・お金などの専門的な助言の代わりにはなりません。
+        </p>
       )}
 
       {!streaming && meta?.fallback && (
