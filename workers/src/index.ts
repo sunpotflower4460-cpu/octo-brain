@@ -162,7 +162,10 @@ app.post("/api/dev/ping-model", async (c) => {
 
 // 入力バリデーション。/api/analyze と /api/analyze/stream で共通。
 type ValidatedBody =
-  | { ok: true; value: { input: string; summary: string; plan: Plan; clientId: string } }
+  | {
+      ok: true;
+      value: { input: string; summary: string; plan: Plan; clientId: string; careTurns: number };
+    }
   | { ok: false; error: string; extra?: Record<string, unknown> };
 
 export function validateAnalyzeBody(body: unknown): ValidatedBody {
@@ -185,7 +188,10 @@ export function validateAnalyzeBody(body: unknown): ValidatedBody {
   if (!VALID_PLANS.includes(plan)) {
     return { ok: false, error: "invalid_plan", extra: { allowed: VALID_PLANS } };
   }
-  return { ok: true, value: { input, summary, plan, clientId } };
+  // この会話で寄り添いモードになった回数(アプリが数えて送る)。窓口を控えめに出す判断にだけ使う
+  const rawTurns = typeof b.careTurns === "number" ? Math.floor(b.careTurns) : 0;
+  const careTurns = Math.min(100, Math.max(0, Number.isFinite(rawTurns) ? rawTurns : 0));
+  return { ok: true, value: { input, summary, plan, clientId, careTurns } };
 }
 
 // ---- P5 堅牢化ガード: IP制限 + 連打防止 + クォータ実ブロック ----

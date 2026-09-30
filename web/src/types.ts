@@ -48,7 +48,9 @@ export interface AnalyzeMeta {
   // 利用が集中して予算が逼迫したため、軽いモード(ライト・推論なし)で答えた
   economy?: boolean;
   // 繊細な相談として寄り添いモードで答えた(視点一覧・深掘りを出さない)
-  care?: "crisis" | "medical_emergency";
+  care?: "crisis" | "distress" | "medical_emergency";
+  // 声で話せる場所(相談窓口)を添えてよい。このときだけ窓口カードを出す
+  careOffer?: boolean;
   plan: Plan;
   domain: string;
   quorum: string;
@@ -75,6 +77,8 @@ export interface AnalyzeRequestBody {
   summary?: string;
   plan?: Plan;
   clientId: string;
+  // この会話で寄り添いモードになった回数(軽い吐露に毎回窓口を出さないため)
+  careTurns?: number;
 }
 
 // 深化 (P1.5 §6)

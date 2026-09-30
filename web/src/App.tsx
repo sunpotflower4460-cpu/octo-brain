@@ -381,7 +381,15 @@ export default function App() {
     };
 
     await analyzeStream(
-      { input: text, summary: summaryRef.current || undefined, plan, clientId: clientIdRef.current },
+      {
+        input: text,
+        summary: summaryRef.current || undefined,
+        plan,
+        clientId: clientIdRef.current,
+        careTurns: messagesRef.current.filter(
+          (m) => m.meta?.care === "crisis" || m.meta?.care === "distress",
+        ).length,
+      },
       {
         onPhase: (phase: SSEPhase, nodeIds?: string[]) =>
           applyTrace(assistantId, (t) => traceOnPhase(t, phase as UiPhase, nodeIds)),
