@@ -53,3 +53,16 @@ describe("寄り添い方の指示", () => {
     expect(buildSynthUserText("転職すべきか", "", [])).not.toContain("寄り添いモード");
   });
 });
+
+describe("疲れ・限界の短い吐露(venting)", () => {
+  it.each(["もう無理、疲れた。全部投げ出したい", "しんどい", "今日は本当に疲れた"])("venting: %s", (t) =>
+    expect(detectCare(t)).toBe("venting"),
+  );
+  it.each(["仕事に疲れた。転職すべき?", "疲れたときにおすすめの過ごし方を教えて"])("相談の形なら通常: %s", (t) =>
+    expect(detectCare(t)).toBeNull(),
+  );
+  it("危機の確認・窓口から入らない指示で、窓口は出さない", () => {
+    expect(careDirective("venting")).toContain("危機として扱わない");
+    expect(shouldOfferSupport("venting", 3, "話を聞かせて")).toBe(false);
+  });
+});

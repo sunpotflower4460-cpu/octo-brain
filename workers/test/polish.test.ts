@@ -3,10 +3,17 @@ import { polishAnswer } from "../src/lib/polish.js";
 import { detectBoundary } from "../src/lib/boundary.js";
 
 describe("polishAnswer", () => {
-  it("入力にある引用はそのまま(括弧の種類・空白・全角?の違いは許す)", () => {
-    const input = "『このアプリは8つのAIが並列で考えて統合します。すごいです。』を改善して";
+  it("入力の一部の引用はそのまま(括弧の種類・空白・全角?の違いは許す)", () => {
+    const input =
+      "App Storeの紹介文を直したい。今は『このアプリは8つのAIが並列で考えて統合します。すごいです。』と書いているが、" +
+      "伝わっていない気がする。誰に向けて書けばいいかも迷っている。";
     const ans = "「このアプリは8つのAIが並列で考えて統合します。すごいです。」\n\n本文";
     expect(polishAnswer(ans, input)).toEqual({ text: ans, fixes: [] });
+  });
+
+  it("入力をほぼ丸ごと繰り返すだけの引用は外す(相談文は画面のすぐ上にある)", () => {
+    const input = "上司が手柄を横取りする。どう対処すべき?";
+    expect(polishAnswer("「上司が手柄を横取りする。どう対処すべき?」\n\n本文", input).text).toBe("本文");
   });
 
   it("入力に無い引用(腕の意見など)で始まるなら、その段落を外す", () => {
@@ -56,7 +63,9 @@ describe("寄り添いモードでは冒頭の引用を外す", () => {
     const input = "消えたいって毎晩思う";
     const r = polishAnswer("「消えたいって毎晩思う」\n\n話してくれてありがとう。", input, { dropOpeningQuote: true });
     expect(r.text).toBe("話してくれてありがとう。");
-    expect(polishAnswer("「消えたいって毎晩思う」\n\n本文", input).text).toContain("「消えたい");
+    // 通常モードなら、長い入力の一部の引用は残る
+    const longInput = "仕事でミスが続いていて、家族にも迷惑をかけている。消えたいって毎晩思う。どうしたらいいのか分からない。";
+    expect(polishAnswer("「消えたいって毎晩思う」\n\n本文", longInput).text).toContain("「消えたい");
   });
 });
 
@@ -74,5 +83,18 @@ describe("LeadingQuoteFilter(ストリーム中の冒頭引用を流さない)",
   });
   it("閉じない引用はためすぎず最後に流す", () => {
     expect(run(["「閉じない引用", "のまま終わる"])).toBe("「閉じない引用のまま終わる");
+  });
+});
+
+describe("境界の但し書きの誤判定を防ぐ", () => {
+  it("電話番号・日付・番地は計算と見なさない", () => {
+    expect(detectBoundary("私の電話番号は090-1234-5678です")).toBeNull();
+    expect(detectBoundary("2026-09-30に面接がある")).toBeNull();
+    expect(detectBoundary("27×43を計算して")).toBe("math");
+    expect(detectBoundary("100 - 37 はいくつ")).toBe("math");
+  });
+  it("天気の雑談には最新情報の但し書きを付けず、尋ねたときだけ付ける", () => {
+    expect(detectBoundary("今日はいい天気ですね")).toBeNull();
+    expect(detectBoundary("今日の天気は?")).toBe("recency");
   });
 });

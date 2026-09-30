@@ -38,7 +38,9 @@ export function polishAnswer(
     if (q.length > 0 && !normalize(input).includes(q)) {
       text = text.trimStart().slice(m[0].length).trimStart();
       fixes.push("misquote_removed");
-    } else if (opts.dropOpeningQuote) {
+    } else if (opts.dropOpeningQuote || q.length >= normalize(input).length * 0.8) {
+      // 寄り添いモード、または入力をほぼ丸ごと繰り返しているだけの引用は外す
+      // (相談文は画面上ですぐ上に表示されているので、丸ごとの繰り返しは機械的に見える)
       text = text.trimStart().slice(m[0].length).trimStart();
     }
   }
