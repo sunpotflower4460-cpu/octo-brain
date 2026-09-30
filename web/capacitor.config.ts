@@ -25,7 +25,7 @@ const config: CapacitorConfig = {
       resize: "native",
     },
     StatusBar: {
-      style: "LIGHT", // 暗い背景 → 明るい文字
+      style: "DARK", // 暗い背景向け(=明るい文字)。LIGHT は暗い文字になる
       backgroundColor: "#050711",
     },
   },
