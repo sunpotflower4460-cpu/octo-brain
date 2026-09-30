@@ -61,6 +61,8 @@ export interface AnalyzeMeta {
   totalCost: number;
   ms: number;
   quotaUsed: number | null;
+  // 利用状況(残り回数の表示用)
+  quota?: QuotaStatus;
   boundary?: BoundaryKind | null;
   warnings?: string[];
 }
@@ -90,9 +92,17 @@ export interface DeepenRequestBody {
   clientId: string;
 }
 
+// 利用状況。単位はクォータ単位(ライト・共鳴=1、ディープ・深掘り=2)
+export interface QuotaStatus {
+  used: number;
+  limit: number;
+  dayUsed: number;
+  dayLimit: number;
+}
+
 export interface DeepenResponse {
   answer: string;
-  meta: { axis: string; calls: number; totalCost: number; ms: number };
+  meta: { axis: string; calls: number; totalCost: number; ms: number; quota?: QuotaStatus };
 }
 
 // 共鳴/掛け算 (P1.6 §4)
@@ -111,5 +121,6 @@ export interface ResonateResponse {
     calls: number;
     totalCost: number;
     ms: number;
+    quota?: QuotaStatus;
   };
 }

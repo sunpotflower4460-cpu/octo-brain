@@ -91,6 +91,8 @@ describe("runDeepen (腕間結合)", () => {
 
     // 深化もクォータを消費する(原価比例で2単位)
     expect(res.meta.quotaUsed).toBe(2);
+    // アプリの残り回数表示用に、月・日の使用量と上限を返す
+    expect(res.meta.quota).toEqual({ used: 2, limit: 100, dayUsed: 2, dayLimit: 20 });
     expect([...store.entries()].find(([k]) => k.startsWith("quota:c1:"))?.[1]).toMatch(/^2\|/);
   });
 

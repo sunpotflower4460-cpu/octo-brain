@@ -14,6 +14,7 @@ export default function Composer({
   busy,
   plan,
   onPlanChange,
+  quotaNote,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -22,6 +23,8 @@ export default function Composer({
   busy: boolean;
   plan: Plan;
   onPlanChange: (p: Plan) => void;
+  // 残り回数が少ないときだけ出す短い注意(null なら出さない)
+  quotaNote?: string | null;
 }) {
   const taRef = useRef<HTMLTextAreaElement>(null);
   const [composing, setComposing] = useState(false);
@@ -78,6 +81,11 @@ export default function Composer({
               </button>
             );
           })}
+          {quotaNote && (
+            <span className="ml-auto text-[11px] text-[var(--text-muted)]" role="status">
+              {quotaNote}
+            </span>
+          )}
         </div>
 
         <form

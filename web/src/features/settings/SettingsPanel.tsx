@@ -1,4 +1,6 @@
 import { useEffect } from "react";
+import { quotaSummary } from "../../lib/quota";
+import type { QuotaStatus } from "../../types";
 import { X, Flag, Shield, FileText } from "lucide-react";
 import { useFocusTrap } from "../../hooks/useFocusTrap";
 import {
@@ -59,6 +61,7 @@ export default function SettingsPanel({
   onDeleteData,
   aiConsent,
   onRevokeConsent,
+  quota,
   onClose,
 }: {
   settings: Settings;
@@ -67,6 +70,7 @@ export default function SettingsPanel({
   onDeleteData: () => void;
   aiConsent: boolean;
   onRevokeConsent: () => void;
+  quota: QuotaStatus | null;
   onClose: () => void;
 }) {
   const panelRef = useFocusTrap<HTMLDivElement>();
@@ -125,6 +129,15 @@ export default function SettingsPanel({
             { v: "detailed", label: "詳細" },
           ]}
         />
+
+        {/* 利用状況(無料枠の残り)。ディープ・深掘りは2回分 */}
+        <div className="mt-3 pt-3 border-t border-[var(--line-soft)] px-3">
+          <div className="text-sm text-[var(--text-secondary)]">利用状況</div>
+          <div className="text-xs text-[var(--text-muted)] mt-0.5">{quotaSummary(quota)}</div>
+          <div className="text-[11px] text-[var(--text-muted)] mt-0.5">
+            ディープと「深く掘る」は2回分として数えます。
+          </div>
+        </div>
 
         {/* 外部AIへの送信同意 (5.1.2(i))。取り消すと次の送信前に再度確認する */}
         <div className="mt-3 pt-3 border-t border-[var(--line-soft)]">

@@ -72,6 +72,18 @@ export function dailyQuotaLimit(env: Env): number {
   return numEnv(env, "FREE_DAILY_QUOTA", DEFAULT_FREE_DAILY_QUOTA);
 }
 
+// アプリに返す利用状況(残り回数の表示用)。単位はクォータ単位(ディープ・深掘りは2)
+export interface QuotaStatus {
+  used: number;
+  limit: number;
+  dayUsed: number;
+  dayLimit: number;
+}
+
+export function quotaStatus(env: Env, v: { month: number; day: number }): QuotaStatus {
+  return { used: v.month, limit: quotaLimit(env), dayUsed: v.day, dayLimit: dailyQuotaLimit(env) };
+}
+
 export async function checkQuota(
   kv: KVNamespace,
   clientId: string,

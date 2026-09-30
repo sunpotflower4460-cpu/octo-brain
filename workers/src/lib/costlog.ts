@@ -147,12 +147,22 @@ export async function incrementQuota(
   now: Date,
   units = 1,
 ): Promise<number> {
+  return (await incrementQuotaState(kv, clientId, now, units)).month;
+}
+
+// 加算後の月間・当日の使用量を返す(アプリに残り回数を示すため)
+export async function incrementQuotaState(
+  kv: KVNamespace,
+  clientId: string,
+  now: Date,
+  units = 1,
+): Promise<QuotaValue> {
   const key = quotaKey(clientId, now);
   const cur = parseQuotaValue(await kv.get(key), now);
   const month = cur.month + units;
   const day = cur.day + units;
   await kv.put(key, `${month}|${yyyymmdd(now)}|${day}`, { expirationTtl: QUOTA_TTL_SEC });
-  return month;
+  return { month, day };
 }
 
 function yyyymmdd(d: Date): string {

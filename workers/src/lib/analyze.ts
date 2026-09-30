@@ -8,8 +8,8 @@ import { synthesize, synthesizeFallback, validResonance } from "./synthesize.js"
 import { verify } from "./verify.js";
 import { polishAnswer } from "./polish.js";
 import { shouldOfferSupport, detectCare, type CareKind } from "./care.js";
-import { CostCollector, incrementQuota, logCost, logFailedCost } from "./costlog.js";
-import { QUOTA_UNITS } from "./guard.js";
+import { CostCollector, incrementQuotaState, logCost, logFailedCost } from "./costlog.js";
+import { QUOTA_UNITS, quotaStatus, type QuotaStatus } from "./guard.js";
 import { detectBoundary, withBoundaryPrefix, type BoundaryKind } from "./boundary.js";
 import { planLenses, planQuorum } from "../config/nodes.js";
 import type {
@@ -71,6 +71,8 @@ export interface AnalyzeMeta {
   totalCost: number;
   ms: number;
   quotaUsed: number | null;
+  // 利用状況(残り回数の表示用)。KV 失敗時は付かない
+  quota?: QuotaStatus;
   boundary?: BoundaryKind | null; // 正直な但し書きを添えた領域(計算/最新情報)。null は無し
   warnings?: string[];
 }
@@ -170,6 +172,7 @@ async function runAnalyzeInner(
 
   // ⑤ 原価ログ + クォータ(KV)。失敗は握りつぶさず warnings に。
   let quotaUsed: number | null = null;
+  let quota: QuotaStatus | null = null;
   try {
     await logCost(
       deps.env.OCTO_KV,
@@ -182,12 +185,14 @@ async function runAnalyzeInner(
     warnings.push(`cost_log_failed: ${errMsg(err)}`);
   }
   try {
-    quotaUsed = await incrementQuota(
+    const qv = await incrementQuotaState(
       deps.env.OCTO_KV,
       req.clientId,
       deps.now,
       QUOTA_UNITS[req.plan],
     );
+    quotaUsed = qv.month;
+    quota = quotaStatus(deps.env, qv);
   } catch (err) {
     warnings.push(`quota_increment_failed: ${errMsg(err)}`);
   }
@@ -204,6 +209,7 @@ async function runAnalyzeInner(
     totalCost: collector.totalCost(),
     ms: Date.now() - started,
     quotaUsed,
+    ...(quota ? { quota } : {}),
     boundary,
   };
   if (warnings.length > 0) meta.warnings = warnings;
