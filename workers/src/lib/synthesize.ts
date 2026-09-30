@@ -40,10 +40,11 @@ const SYNTH_PROCEDURE = `あなたはOctoBrainの中央脳。8本の腕 — 4つ
 7. 最後に、本人がまだ言葉にしていない問いをひとつだけ置く
 8. 軸をまたいで、遠いのに響き合う opinion の組がひとつだけあれば ${RESONANCE_MARKER} 行を出す(§共鳴)。基準: (a)異なる軸に属する (b)共通の根が一文で言える (c)組み合わせると新しい選択肢が生まれる。3つすべて満たすときだけ。無理に作らない。該当が無ければ出さない
 - 腕のIDや「ノード3によると」のような機械的引用は禁止。自然な文章に溶かす
-- 断定は根拠の強さに比例させる`;
+- 断定は根拠の強さに比例させる
+- 回答本文は全角700字以内に収める。長さより密度。本文の後の機械可読ブロックは必ず最後まで出し切る`;
 
 // フォールバック時 (クォーラム未達): ノード補助なしで単発直接回答。
-const FALLBACK_PROCEDURE = `あなたはOctoBrainの中央脳です。分析腕の補助が得られなかったため、以下の入力にあなた自身の判断で誠実かつ具体的に直接回答せよ。一般論を避け、この人の状況に踏み込む。過剰な断定を避け、根拠の強さに応じた言い方をする。`;
+const FALLBACK_PROCEDURE = `あなたはOctoBrainの中央脳です。分析腕の補助が得られなかったため、以下の入力にあなた自身の判断で誠実かつ具体的に直接回答せよ。一般論を避け、この人の状況に踏み込む。過剰な断定を避け、根拠の強さに応じた言い方をする。回答本文は全角700字以内に収める。`;
 
 // RESONANCE(任意)+ TENSION + SUMMARY 出力指示(固定文)。
 // マーカー順を厳守: 本文 → RESONANCE(任意) → TENSION → SUMMARY。本文・要約に混ぜない。
@@ -69,6 +70,8 @@ export interface SynthResult {
   summary: string;
   tension: Tension | null;
   resonance: Resonance | null;
+  // 出力上限で打ち切られた(本文途中切れ・マーカー欠落の可能性)。meta.warnings に載せる
+  truncated?: boolean;
 }
 
 // 中央脳に渡すレンズ報告。除外規則を適用済みの形。軸情報を含める(緊張検出のため)。
@@ -114,7 +117,7 @@ export async function synthesize(
     ],
     { env: opts.env, collector: opts.collector, signal: opts.signal },
   );
-  return splitAnswerTensionSummary(res.text, summary);
+  return { ...splitAnswerTensionSummary(res.text, summary), truncated: res.truncated === true };
 }
 
 export async function synthesizeFallback(
@@ -131,7 +134,7 @@ export async function synthesizeFallback(
     ],
     { env: opts.env, collector: opts.collector, signal: opts.signal },
   );
-  return splitAnswerTensionSummary(res.text, summary);
+  return { ...splitAnswerTensionSummary(res.text, summary), truncated: res.truncated === true };
 }
 
 // user側: [会話要約(あれば)] + [今回の入力] + [軸ごとの報告(対角2腕の対話)] (§5)
@@ -345,18 +348,26 @@ async function streamAndCut(
   onToken: (t: string) => void,
 ): Promise<SynthResult> {
   const cutter = new DepthStreamCutter();
+  let truncated = false;
   for await (const delta of callModelStream(
     "synth",
     [
       { role: "system", content: system },
       { role: "user", content: userText },
     ],
-    { env: opts.env, collector: opts.collector, signal: opts.signal },
+    {
+      env: opts.env,
+      collector: opts.collector,
+      signal: opts.signal,
+      onStreamEnd: (info) => {
+        truncated = info.truncated;
+      },
+    },
   )) {
     const out = cutter.push(delta);
     if (out.length > 0) onToken(out);
   }
   const tail = cutter.flushRemaining();
   if (tail.length > 0) onToken(tail);
-  return cutter.result(oldSummary);
+  return { ...cutter.result(oldSummary), truncated };
 }

@@ -14,10 +14,10 @@ POST /api/analyze { input, summary?, mode? }
   │               Promise.allSettled + AbortController(8秒) + クォーラム判定
   │               各ノード: JSON出力固定, max_tokens: 250
   │
-  ├─③ Synthesizer─ 統合脳。手続き化プロンプトで合成 (max_tokens: 1200)
+  ├─③ Synthesizer─ 統合脳。手続き化プロンプトで合成 (max_tokens: 2000)
   │               P2以降はここをSSEストリーミング
   │
-  ├─④ Verifier ── 矛盾・過剰断定・安全の3チェック。表面修正のみ (max_tokens: 500)
+  ├─④ Verifier ── 矛盾・過剰断定・安全の3チェック。表面修正のみ (max_tokens: 2000)
   │               問題なければ "pass" でそのまま通す
   │
   └─ KV書き込み ── 原価ログ + クォータ消費
@@ -108,8 +108,8 @@ user側には `[会話要約(あれば)] + [今回の入力] + [ノードレポ�
 |---|---|---|
 | Router | 10 | 1語のみ |
 | Node ×N | 250 | JSON実測は100前後 |
-| Synthesizer | 1200 | ここだけ予算を使う |
-| Verifier | 500 | passなら数トークン |
+| Synthesizer | 2000 | ここだけ予算を使う(本文700字目安+機械可読ブロック) |
+| Verifier | 2000 | passなら数トークン。修正時は全文を出し直すため synth と同じ上限 |
 
 - **入力複製の回避**: 会話履歴の全文を渡さない。クライアントが保持する「ローリング要約」(300字以内、Synthesizerが `meta.summary` として毎回更新版を返す)+今回の入力のみを各ノードに渡す
 - システムプロンプト完全固定でプロンプトキャッシュを効かせる

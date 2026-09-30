@@ -29,6 +29,8 @@ export interface CallModelOpts {
   modelOverride?: ModelConfig;
   // リトライのベース待機ms (指数バックオフ)。テストで 0 を渡せるよう外出し
   retryBaseMs?: number;
+  // ストリーミング終了時の通知(出力上限での打ち切り検出用)。callModelStream のみ使用
+  onStreamEnd?: (info: { truncated: boolean }) => void;
   // 原価ログの書き込み先。渡されると呼び出し1件分のレコードを record() する。
   // 全モデル呼び出しがこの1関数を経由して原価ログに載る (絶対ルール5)。
   collector?: CostSink;
@@ -255,7 +257,8 @@ function extractResult(
       const usage = (p.usage ?? {}) as Record<string, unknown>;
       const inTok = asNumber(usage.prompt_tokens);
       const outTok = asNumber(usage.completion_tokens);
-      return finalize(text, inTok, outTok, inCharsFallback);
+      const truncated = asString(first.finish_reason) === "length";
+      return finalize(text, inTok, outTok, inCharsFallback, truncated);
     }
     case "gemini": {
       const candidates = asArray(p.candidates);
@@ -268,7 +271,8 @@ function extractResult(
       const usage = (p.usageMetadata ?? {}) as Record<string, unknown>;
       const inTok = asNumber(usage.promptTokenCount);
       const outTok = asNumber(usage.candidatesTokenCount);
-      return finalize(text, inTok, outTok, inCharsFallback);
+      const truncated = asString(cand.finishReason) === "MAX_TOKENS";
+      return finalize(text, inTok, outTok, inCharsFallback, truncated);
     }
     case "anthropic": {
       const blocks = asArray(p.content);
@@ -278,7 +282,8 @@ function extractResult(
       const usage = (p.usage ?? {}) as Record<string, unknown>;
       const inTok = asNumber(usage.input_tokens);
       const outTok = asNumber(usage.output_tokens);
-      return finalize(text, inTok, outTok, inCharsFallback);
+      const truncated = asString(p.stop_reason) === "max_tokens";
+      return finalize(text, inTok, outTok, inCharsFallback, truncated);
     }
   }
 }
@@ -288,9 +293,10 @@ function finalize(
   inTok: number | null,
   outTok: number | null,
   inCharsFallback: number,
+  truncated: boolean,
 ): Omit<ModelCallResult, "ms"> {
   if (inTok !== null && outTok !== null) {
-    return { text, inTok, outTok, estimated: false };
+    return { text, inTok, outTok, estimated: false, truncated };
   }
   // usage が取れなかった → 文字数/4 で概算
   return {
@@ -298,6 +304,7 @@ function finalize(
     inTok: inTok ?? inCharsFallback,
     outTok: outTok ?? estimateTokens(text),
     estimated: true,
+    truncated,
   };
 }
 

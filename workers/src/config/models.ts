@@ -59,8 +59,10 @@ const PRO = {
 export const MODELS: Record<ModelRole, ModelConfig> = {
   router: { ...FLASH, maxTokens: 10 },
   node: { ...FLASH, maxTokens: 250 },
-  synth: { ...PRO, maxTokens: 1200 },
-  verifier: { ...FLASH, maxTokens: 500 },
+  // 日本語はほぼ1字≒1トークン。本文700字目安+機械可読ブロックが切れない余裕を持たせる
+  synth: { ...PRO, maxTokens: 2000 },
+  // 修正時は回答全文を出し直すため synth と同じ上限(通常は "pass" のみで安い)
+  verifier: { ...FLASH, maxTokens: 2000 },
 };
 
 // ノード多様化プール (P4)。node役割に複数社の軽量モデルを持たせ、pickNodeModel が

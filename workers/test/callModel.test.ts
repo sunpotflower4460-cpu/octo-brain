@@ -319,3 +319,51 @@ describe("extraBody(provider固有パラメータ)", () => {
     expect(sent.max_tokens).toBe(250);
   });
 });
+
+describe("出力上限での打ち切り検出(truncated)", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("openai-compat: finish_reason=length で truncated=true", async () => {
+    mockFetch(() =>
+      jsonResponse({
+        choices: [{ message: { content: "途中で" }, finish_reason: "length" }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      }),
+    );
+    const r = await callModel("node", messages, { env, retryBaseMs: 0, modelOverride: openaiCfg });
+    expect(r.truncated).toBe(true);
+  });
+
+  it("openai-compat: finish_reason=stop なら truncated=false", async () => {
+    mockFetch(() =>
+      jsonResponse({
+        choices: [{ message: { content: "完了" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      }),
+    );
+    const r = await callModel("node", messages, { env, retryBaseMs: 0, modelOverride: openaiCfg });
+    expect(r.truncated).toBe(false);
+  });
+
+  it("stream: finish_reason=length を onStreamEnd で通知", async () => {
+    const { callModelStream } = await import("../src/lib/callModelStream.js");
+    const sse =
+      `data: ${JSON.stringify({ choices: [{ delta: { content: "途中" } }] })}\n\n` +
+      `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "length" }] })}\n\n` +
+      "data: [DONE]\n\n";
+    mockFetch(() => new Response(sse, { status: 200, headers: { "content-type": "text/event-stream" } }));
+    let info: { truncated: boolean } | null = null;
+    let text = "";
+    for await (const d of callModelStream("synth", messages, {
+      env,
+      modelOverride: openaiCfg,
+      onStreamEnd: (i) => {
+        info = i;
+      },
+    })) {
+      text += d;
+    }
+    expect(text).toBe("途中");
+    expect(info).toEqual({ truncated: true });
+  });
+});

@@ -17,6 +17,8 @@ export interface ModelCallResult {
   ms: number;
   // usage をレスポンスから取得できず文字数概算にフォールバックした場合 true
   estimated: boolean;
+  // 出力上限(max_tokens)で打ち切られた場合 true(finish_reason=length 等)
+  truncated?: boolean;
 }
 
 // 原価ログ1レコード (docs/00_architecture.md §8 の calls[] 要素)

@@ -115,6 +115,9 @@ export async function runAnalyze(
     collector,
     signal: deps.signal,
   });
+  // 部分的な劣化は握りつぶさず meta.warnings で可視化する
+  if (synth.truncated) warnings.push("synth_truncated");
+  if (verified.rejected) warnings.push(`verifier_rewrite_rejected: ${verified.rejected}`);
 
   // ④' 境界の正直さ: 苦手系(計算/最新情報)を検出したら回答冒頭に正直な但し書き
   const boundary = detectBoundary(req.input);

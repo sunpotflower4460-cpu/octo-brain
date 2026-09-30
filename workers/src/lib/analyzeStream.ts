@@ -80,6 +80,9 @@ export async function runAnalyzeStream(
     collector,
     signal: deps.signal,
   });
+  // 部分的な劣化は握りつぶさず meta.warnings で可視化する
+  if (synth.truncated) warnings.push("synth_truncated");
+  if (verified.rejected) warnings.push(`verifier_rewrite_rejected: ${verified.rejected}`);
 
   const quorumStr = `${run.successCount}/${run.nodes.length}`;
 

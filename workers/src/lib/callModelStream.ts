@@ -16,6 +16,7 @@ interface StreamPiece {
   inTok?: number;
   outTok?: number;
   done?: boolean;
+  truncated?: boolean; // 出力上限で打ち切られた(finish_reason=length 等)
 }
 
 // テキストデルタを逐次 yield する非同期ジェネレータ。
@@ -41,12 +42,14 @@ export async function* callModelStream(
   let acc = "";
   let inTok: number | null = null;
   let outTok: number | null = null;
+  let truncated = false;
 
   for await (const data of readSSE(res.body, opts.signal)) {
     if (data === "[DONE]") break;
     const piece = extractStreamPiece(cfg, data);
     if (piece.inTok != null) inTok = piece.inTok;
     if (piece.outTok != null) outTok = piece.outTok;
+    if (piece.truncated) truncated = true;
     if (piece.delta) {
       acc += piece.delta;
       yield piece.delta;
@@ -67,6 +70,7 @@ export async function* callModelStream(
     ms,
     estimated,
   });
+  opts.onStreamEnd?.({ truncated });
 }
 
 // ---------------------------------------------------------------------------
@@ -169,6 +173,7 @@ function extractStreamPiece(cfg: ModelConfig, data: string): StreamPiece {
       const delta = (first.delta ?? {}) as Record<string, unknown>;
       const usage = (p.usage ?? null) as Record<string, unknown> | null;
       return {
+        truncated: asString(first.finish_reason) === "length",
         delta: asString(delta.content),
         inTok: usage ? asNumber(usage.prompt_tokens) ?? undefined : undefined,
         outTok: usage ? asNumber(usage.completion_tokens) ?? undefined : undefined,
@@ -187,7 +192,11 @@ function extractStreamPiece(cfg: ModelConfig, data: string): StreamPiece {
       }
       if (type === "message_delta") {
         const usage = (p.usage ?? {}) as Record<string, unknown>;
-        return { outTok: asNumber(usage.output_tokens) ?? undefined };
+        const d = (p.delta ?? {}) as Record<string, unknown>;
+        return {
+          outTok: asNumber(usage.output_tokens) ?? undefined,
+          truncated: asString(d.stop_reason) === "max_tokens",
+        };
       }
       if (type === "message_stop") return { done: true };
       return {};
@@ -202,6 +211,7 @@ function extractStreamPiece(cfg: ModelConfig, data: string): StreamPiece {
         .join("");
       const usage = (p.usageMetadata ?? null) as Record<string, unknown> | null;
       return {
+        truncated: asString(cand.finishReason) === "MAX_TOKENS",
         delta: text,
         inTok: usage ? asNumber(usage.promptTokenCount) ?? undefined : undefined,
         outTok: usage ? asNumber(usage.candidatesTokenCount) ?? undefined : undefined,
