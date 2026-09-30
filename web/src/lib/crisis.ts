@@ -1,0 +1,28 @@
+// 危機的な内容(希死念慮・自傷)の検出。該当時は回答の前に相談窓口を案内する。
+// 誤検知で窓口を出しても害は小さく、見逃しの害は大きいので、広めに拾う。
+// 電話番号は公的・公益の窓口(2026-09 時点)。変更時はここだけ直す。
+
+const PATTERNS: RegExp[] = [
+  /死にたい|しにたい|死のう|死んでしまいたい|消えたい|きえたい|いなくなりたい/,
+  /自殺|自死|首を吊|首をつ|飛び降り|とびおり|練炭|OD(する|した|しよう)|オーバードーズ/,
+  /リスカ|リストカット|自傷|自分を傷つけ|手首を切/,
+  /生きていたくない|生きる意味がない|生きてる意味がない|もう限界で死/,
+  /suicid|kill myself|end my life|self[- ]?harm/i,
+];
+
+export function detectCrisis(text: string): boolean {
+  return PATTERNS.some((p) => p.test(text));
+}
+
+export interface Hotline {
+  name: string;
+  tel: string; // tel: リンク用(ハイフンなし)
+  display: string;
+  hours: string;
+}
+
+export const HOTLINES: Hotline[] = [
+  { name: "よりそいホットライン", tel: "0120279338", display: "0120-279-338", hours: "24時間・無料" },
+  { name: "いのちの電話", tel: "0570783556", display: "0570-783-556", hours: "10時〜22時" },
+  { name: "こころの健康相談統一ダイヤル", tel: "0570064556", display: "0570-064-556", hours: "時間は地域により異なる" },
+];

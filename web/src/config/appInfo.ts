@@ -20,13 +20,18 @@ export function isConfiguredUrl(url: string): boolean {
 }
 
 // 報告メールの mailto(件名・本文をプリフィル)。生の内部情報は含めない。
-export function reportMailto(): string {
+// excerpt を渡すと、報告対象の回答の冒頭を本文に引用する(送るかどうかはユーザーがメール画面で決める)。
+export function reportMailto(excerpt?: string): string {
   const subject = encodeURIComponent(`[OctoBrain] 問題の報告 (v${APP_VERSION})`);
+  const quoted = excerpt
+    ? `\n―― 報告する回答(冒頭) ――\n${excerpt.slice(0, 300)}${excerpt.length > 300 ? "…" : ""}\n`
+    : "";
   const body = encodeURIComponent(
     "気になった点や不適切だと感じた出力について、差し支えない範囲でお書きください。\n\n" +
       "―― 以下は任意 ――\n" +
       "・どんな入力でしたか:\n" +
-      "・どんな出力が問題でしたか:\n",
+      "・どんな出力が問題でしたか:\n" +
+      quoted,
   );
   return `mailto:${SUPPORT_EMAIL}?subject=${subject}&body=${body}`;
 }

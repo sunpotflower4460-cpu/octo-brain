@@ -32,6 +32,7 @@ import {
   type Settings,
 } from "./lib/settings";
 import { loadOrCreateClientId } from "./lib/clientId";
+import { hasAiConsent, setAiConsent } from "./lib/consent";
 import { initNativeShell } from "./lib/native/shell";
 import LivingCore from "./features/cognition/LivingCore";
 import AmbientCosmos from "./features/atmosphere/AmbientCosmos";
@@ -41,6 +42,7 @@ import Composer from "./features/chat/Composer";
 import ConversationList from "./features/conversations/ConversationList";
 import Onboarding from "./features/onboarding/Onboarding";
 import SettingsPanel from "./features/settings/SettingsPanel";
+import ConsentSheet from "./features/consent/ConsentSheet";
 import StatusAnnouncer from "./components/StatusAnnouncer";
 import type { ChatMessage } from "./features/chat/message";
 import type { NodeView, Plan, ResonancePair, SSEPhase } from "./types";
@@ -76,6 +78,9 @@ export default function App() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  // 外部AI送信の同意 (5.1.2(i))。未同意で送信しようとしたら同意シートを出し、承諾後に送る
+  const [aiConsent, setAiConsentState] = useState(false);
+  const [pendingSend, setPendingSend] = useState<string | null>(null);
   const online = useOnlineStatus();
 
   const reducedMotion = useReducedMotion(settings.motion);
@@ -189,9 +194,14 @@ export default function App() {
     let cancelled = false;
     void initNativeShell(); // ネイティブのみ StatusBar/Keyboard/Splash を整える(web は no-op)
     (async () => {
-      const [loaded, clientId] = await Promise.all([loadSettings(), loadOrCreateClientId()]);
+      const [loaded, clientId, consent] = await Promise.all([
+        loadSettings(),
+        loadOrCreateClientId(),
+        hasAiConsent(),
+      ]);
       if (cancelled) return;
       setSettings(loaded);
+      setAiConsentState(consent);
       clientIdRef.current = clientId;
       const s = await createStorage();
       if (cancelled) return;
@@ -421,6 +431,12 @@ export default function App() {
       setInput(text);
       return;
     }
+    if (!aiConsent) {
+      // 同意前は送らない。入力は残したまま同意シートを出す
+      setInput(text);
+      setPendingSend(text);
+      return;
+    }
     ensureConversation(text);
     setInput("");
     void runAnalyze(text);
@@ -440,6 +456,10 @@ export default function App() {
   const handleDeepen = async (msg: ChatMessage) => {
     const tension = msg.meta?.tension;
     if (busyRef.current || busy || !tension || !msg.sourceInput || !clientIdRef.current) return;
+    if (!aiConsent) {
+      setPendingSend(""); // 同意シートのみ(同意後にもう一度押してもらう)
+      return;
+    }
     const ids = armsForAxis(tension.axis).map((i) => LENS_ORDER[i]);
     setCoreAction({ kind: "tension", ids });
     busyRef.current = true;
@@ -480,6 +500,10 @@ export default function App() {
     pair: { a: ResonancePair; b: ResonancePair },
   ) => {
     if (busyRef.current || busy || !msg.sourceInput || !clientIdRef.current) return;
+    if (!aiConsent) {
+      setPendingSend("");
+      return;
+    }
     setCoreAction({ kind: "resonance", ids: [pair.a.lens, pair.b.lens] });
     busyRef.current = true;
     setBusy(true);
@@ -517,6 +541,26 @@ export default function App() {
       busyRef.current = false;
       setBusy(false);
     }
+  };
+
+  // ---- 外部送信の同意 ----
+  const acceptConsent = () => {
+    const text = pendingSend;
+    void setAiConsent(true);
+    setAiConsentState(true);
+    setPendingSend(null);
+    if (text && !busyRef.current) {
+      ensureConversation(text);
+      setInput("");
+      void runAnalyze(text);
+    }
+  };
+
+  const declineConsent = () => setPendingSend(null);
+
+  const revokeConsent = () => {
+    void setAiConsent(false);
+    setAiConsentState(false);
   };
 
   // ---- 設定 ----
@@ -740,8 +784,14 @@ export default function App() {
             setShowOnboarding(true);
           }}
           onDeleteData={() => void deleteAllData()}
+          aiConsent={aiConsent}
+          onRevokeConsent={revokeConsent}
           onClose={() => setSettingsOpen(false)}
         />
+      )}
+
+      {pendingSend !== null && (
+        <ConsentSheet onAccept={acceptConsent} onDecline={declineConsent} />
       )}
 
       {showOnboarding && (

@@ -57,12 +57,16 @@ export default function SettingsPanel({
   onChange,
   onReshowOnboarding,
   onDeleteData,
+  aiConsent,
+  onRevokeConsent,
   onClose,
 }: {
   settings: Settings;
   onChange: (s: Settings) => void;
   onReshowOnboarding: () => void;
   onDeleteData: () => void;
+  aiConsent: boolean;
+  onRevokeConsent: () => void;
   onClose: () => void;
 }) {
   const panelRef = useFocusTrap<HTMLDivElement>();
@@ -121,6 +125,27 @@ export default function SettingsPanel({
             { v: "detailed", label: "詳細" },
           ]}
         />
+
+        {/* 外部AIへの送信同意 (5.1.2(i))。取り消すと次の送信前に再度確認する */}
+        <div className="mt-3 pt-3 border-t border-[var(--line-soft)]">
+          <div className="flex items-center justify-between gap-3 px-3 min-h-[44px]">
+            <div className="text-sm">
+              <div className="text-[var(--text-secondary)]">外部AI(DeepSeek)への送信</div>
+              <div className="text-xs text-[var(--text-muted)]">
+                {aiConsent ? "同意済み" : "未同意(送信時に確認します)"}
+              </div>
+            </div>
+            {aiConsent && (
+              <button
+                type="button"
+                onClick={onRevokeConsent}
+                className="min-h-[36px] px-3 rounded-full text-xs text-[var(--text-secondary)] bg-[var(--surface-2)] border border-[var(--line-soft)]"
+              >
+                同意を取り消す
+              </button>
+            )}
+          </div>
+        </div>
 
         <div className="mt-3 pt-3 border-t border-[var(--line-soft)] space-y-2">
           <button
