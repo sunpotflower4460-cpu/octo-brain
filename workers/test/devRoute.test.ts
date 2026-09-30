@@ -29,3 +29,16 @@ describe("/api/dev/ping-model の有効範囲", () => {
     expect(((await res.json()) as { error: string }).error).toBe("invalid_role");
   });
 });
+
+describe("/api/dev/baseline(比較評価用)は本番で無効", () => {
+  it("ENVIRONMENT 未設定・production では 404", async () => {
+    const req = () =>
+      new Request("http://x/api/dev/baseline", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ input: "x" }),
+      });
+    expect((await app.request(req(), {}, {})).status).toBe(404);
+    expect((await app.request(req(), {}, { ENVIRONMENT: "production" })).status).toBe(404);
+  });
+});

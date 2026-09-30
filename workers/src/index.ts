@@ -2,7 +2,8 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { callModel } from "./lib/callModel.js";
 import type { ModelRole } from "./config/models.js";
-import { MODEL_ROLES, activeProfile, modelFor } from "./config/models.js";
+import { BASELINE_MODELS, MODEL_ROLES, activeProfile, modelFor } from "./config/models.js";
+import { CostCollector } from "./lib/costlog.js";
 import { runAnalyze } from "./lib/analyze.js";
 import { runAnalyzeStream } from "./lib/analyzeStream.js";
 import { runDeepen, resolveAxis } from "./lib/deepen.js";
@@ -115,6 +116,36 @@ app.get("/api/health", (c) => {
   if (!c.env.OCTO_KV) problems.push("kv_missing");
   if (problems.length > 0) return c.json({ ok: false, version: VERSION, profile, problems }, 503);
   return c.json({ ok: true, version: VERSION, profile });
+});
+
+// 開発用: 比較評価の「普通のチャットボット」。ENVIRONMENT=development のときだけ有効。
+// body: { model: "luna" | "sol", system?: string, input: string }。原価は callModel を通る(絶対ルール5)。
+app.post("/api/dev/baseline", async (c) => {
+  if (c.env.ENVIRONMENT !== "development") {
+    return c.json({ error: "not_available_in_production" }, 404);
+  }
+  const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const model = b.model === "sol" ? "sol" : "luna";
+  const input = typeof b.input === "string" ? b.input : "";
+  const system =
+    typeof b.system === "string" && b.system.length > 0
+      ? b.system
+      : "あなたは親切で有能なAIアシスタントです。ユーザーの相談や質問に、日本語で丁寧かつ具体的に答えてください。";
+  if (input.length === 0) return c.json({ error: "input_required" }, 400);
+  try {
+    const collector = new CostCollector();
+    const r = await callModel(
+      "synth",
+      [
+        { role: "system", content: system },
+        { role: "user", content: input },
+      ],
+      { env: c.env, modelOverride: BASELINE_MODELS[model], collector },
+    );
+    return c.json({ text: r.text, cost: collector.totalCost(), ms: r.ms });
+  } catch (err) {
+    return c.json({ error: errDetail(err) }, 502);
+  }
 });
 
 // 開発用: モデル疎通確認。ENVIRONMENT=development のときだけ有効(未設定・本番は無効)。
