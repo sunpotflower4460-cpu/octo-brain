@@ -10,7 +10,7 @@ import {
   synthesizeFallbackStream,
 } from "./synthesize.js";
 import { verify } from "./verify.js";
-import { CostCollector, incrementQuota, logCost } from "./costlog.js";
+import { CostCollector, incrementQuota, logCost, logFailedCost } from "./costlog.js";
 import { QUOTA_UNITS } from "./guard.js";
 import { detectBoundary, boundaryPrefix, withBoundaryPrefix } from "./boundary.js";
 import { planLenses, planQuorum } from "../config/nodes.js";
@@ -27,8 +27,30 @@ export async function runAnalyzeStream(
   deps: AnalyzeDeps,
   emit: EmitFn,
 ): Promise<void> {
-  const started = deps.now.getTime();
   const collector = new CostCollector();
+  try {
+    return await runAnalyzeStreamInner(req, deps, emit, collector);
+  } catch (err) {
+    // 途中までの課金済み呼び出しを原価ログに残す(監査 H8)
+    await logFailedCost(
+      deps.env.OCTO_KV,
+      deps.requestId,
+      collector,
+      "analyze",
+      deps.now.getTime(),
+      deps.now,
+    );
+    throw err;
+  }
+}
+
+async function runAnalyzeStreamInner(
+  req: AnalyzeInput,
+  deps: AnalyzeDeps,
+  emit: EmitFn,
+  collector: CostCollector,
+): Promise<void> {
+  const started = deps.now.getTime();
   const warnings: string[] = [];
 
   // ① Router

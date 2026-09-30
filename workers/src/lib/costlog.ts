@@ -56,6 +56,31 @@ export async function logCost(
   await kv.put(key, JSON.stringify(value), { expirationTtl: COST_TTL_SEC });
 }
 
+// 失敗・中断・予算超過で途中終了したリクエストの原価を記録する(ベストエフォート)。
+// 途中までに完了したモデル呼び出しは課金済みのため、成功時だけ記録すると原価が過少になる。
+// KV 失敗はここでは投げない(元のエラーを優先して呼び出し側へ伝播させるため)。
+export async function logFailedCost(
+  kv: KVNamespace,
+  requestId: string,
+  collector: CostCollector,
+  kind: string,
+  startedMs: number,
+  now: Date,
+): Promise<void> {
+  if (collector.calls.length === 0) return;
+  try {
+    await logCost(
+      kv,
+      requestId,
+      collector,
+      { quorum: "failed", fallback: false, ms: Date.now() - startedMs, kind: `${kind}_failed` },
+      now,
+    );
+  } catch {
+    /* 元のエラーを優先 */
+  }
+}
+
 // quota キーの生成(guard の残量チェックと共有し、キー形式を一元管理)。
 export function quotaKey(clientId: string, now: Date): string {
   return `quota:${clientId}:${yyyymm(now)}`;

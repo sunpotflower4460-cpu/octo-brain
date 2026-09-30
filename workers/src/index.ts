@@ -291,15 +291,19 @@ app.post("/api/analyze/stream", async (c) => {
   const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
   const writer = writable.getWriter();
 
+  // 書き込み失敗 = クライアントが読むのをやめた(切断・停止)。以降のモデル呼び出しを止める。
+  // request.signal(enable_request_signal)と二重に検知し、どちらか早い方で中断する。
+  const clientGone = new AbortController();
   const emit = (event: string, data: unknown): void => {
-    void writer.write(
-      encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`),
-    );
+    if (clientGone.signal.aborted) return;
+    writer
+      .write(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`))
+      .catch(() => clientGone.abort());
   };
 
   const budget = AbortSignal.timeout(requestBudgetMs(c.env));
   // クライアント切断でもモデル呼び出しを止め、無駄な原価・クォータ消化を防ぐ。
-  const signal = combineAbortSignals(budget, c.req.raw.signal);
+  const signal = combineAbortSignals(budget, c.req.raw.signal, clientGone.signal);
   const pump = async (): Promise<void> => {
     try {
       await runAnalyzeStream(
@@ -309,7 +313,7 @@ app.post("/api/analyze/stream", async (c) => {
       );
     } catch (err) {
       // 切断済みなら emit 不要。予算超過は構造化 error でフロントが humanize できる形に。
-      if (c.req.raw.signal.aborted) return;
+      if (c.req.raw.signal.aborted || clientGone.signal.aborted) return;
       if (budget.aborted) {
         emit("error", { error: "timeout", message: "timeout" });
         return;

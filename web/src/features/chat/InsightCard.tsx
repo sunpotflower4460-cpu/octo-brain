@@ -10,12 +10,14 @@ export default function InsightCard({
   content,
   streaming,
   verifying,
+  cancelled,
   meta,
   onRetry,
 }: {
   content: string;
   streaming?: boolean;
   verifying?: boolean;
+  cancelled?: boolean;
   meta?: AnalyzeMeta;
   onRetry?: () => void;
 }) {
@@ -56,7 +58,20 @@ export default function InsightCard({
         </div>
       )}
 
-      {content.length === 0 && streaming ? (
+      {content.length === 0 && !streaming && cancelled ? (
+        <div className="flex items-center justify-between gap-3 text-sm text-[var(--text-muted)]">
+          <span>停止しました。</span>
+          {onRetry && (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="min-h-[36px] px-3 rounded-full text-xs font-semibold text-[var(--text-secondary)] bg-[var(--surface-3)]"
+            >
+              もう一度考える
+            </button>
+          )}
+        </div>
+      ) : content.length === 0 && streaming ? (
         <div className="space-y-2" aria-hidden>
           <div className="h-3.5 w-3/4 rounded bg-[var(--surface-3)] animate-pulse" />
           <div className="h-3.5 w-5/6 rounded bg-[var(--surface-3)] animate-pulse" />
