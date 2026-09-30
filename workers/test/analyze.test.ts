@@ -168,7 +168,7 @@ describe("runAnalyze パイプライン (P1.5)", () => {
 
   it("verifier が修正すると verified=modified", async () => {
     mockedCall.mockImplementation(
-      dispatch("general", OK_JSON, SYNTH_TENSION, "修正済みの回答全文") as unknown as typeof callModel,
+      dispatch("general", OK_JSON, SYNTH_TENSION, "最終回答の本文") as unknown as typeof callModel,
     );
     const { env } = makeEnv();
 
@@ -178,6 +178,38 @@ describe("runAnalyze パイプライン (P1.5)", () => {
     );
 
     expect(res.meta.verified).toBe("modified");
-    expect(res.answer).toBe("修正済みの回答全文");
+    expect(res.answer).toBe("最終回答の本文");
+  });
+
+  it("synth が出力上限で切れたら meta.warnings に synth_truncated", async () => {
+    const base = dispatch("general", OK_JSON, "途中で切れた回答") as (
+      role: ModelRole,
+      m: ChatMessage[],
+    ) => Promise<ModelCallResult>;
+    mockedCall.mockImplementation(((role: ModelRole, m: ChatMessage[]) =>
+      role === "synth"
+        ? Promise.resolve({ ...result("途中で切れた回答"), truncated: true })
+        : base(role, m)) as unknown as typeof callModel);
+    const { env } = makeEnv();
+    const res = await runAnalyze(
+      { input: "x", summary: "旧要約", plan: "light", clientId: "c1" },
+      { env, now: new Date(), requestId: "req-trunc" },
+    );
+    expect(res.meta.warnings).toContain("synth_truncated");
+    expect(res.summary).toBe("旧要約"); // マーカー欠落時は旧要約を維持
+  });
+
+  it("verifier の短文置換は棄却され warnings に理由が載る", async () => {
+    mockedCall.mockImplementation(
+      dispatch("general", OK_JSON, SYNTH_TENSION, "OK") as unknown as typeof callModel,
+    );
+    const { env } = makeEnv();
+    const res = await runAnalyze(
+      { input: "x", summary: "", plan: "light", clientId: "c1" },
+      { env, now: new Date(), requestId: "req-rej" },
+    );
+    expect(res.answer).toBe("最終回答本文");
+    expect(res.meta.verified).toBe("pass");
+    expect(res.meta.warnings).toContain("verifier_rewrite_rejected: length_mismatch");
   });
 });

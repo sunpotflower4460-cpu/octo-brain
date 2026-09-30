@@ -19,7 +19,13 @@ export interface VerifyOpts {
 export interface VerifyResult {
   text: string;
   modified: boolean;
+  // 修正案を棄却して元の回答を採用した理由(meta.warnings 用)。棄却しなければ undefined
+  rejected?: "truncated" | "length_mismatch";
 }
+
+// 「表面のみ最小修正」の範囲を外れた書き換え(要約・置換・大幅加筆)を棄却する長さ比。
+const MIN_REWRITE_RATIO = 0.7;
+const MAX_REWRITE_RATIO = 1.3;
 
 export async function verify(
   answer: string,
@@ -38,6 +44,15 @@ export async function verify(
   // "pass\nOK" や本文を含む応答は修正済みとして採用する。
   if (t.length === 0 || /^pass[.!。]?$/i.test(t)) {
     return { text: answer, modified: false };
+  }
+  // 出力上限で切れた修正案は採用しない(途中切れの回答で置き換えない)
+  if (res.truncated) {
+    return { text: answer, modified: false, rejected: "truncated" };
+  }
+  // 「問題ありません。」等の短文や大幅な書き換えは最小修正ではないので元を採用
+  const ratio = t.length / Math.max(1, answer.trim().length);
+  if (ratio < MIN_REWRITE_RATIO || ratio > MAX_REWRITE_RATIO) {
+    return { text: answer, modified: false, rejected: "length_mismatch" };
   }
   return { text: t, modified: true };
 }
