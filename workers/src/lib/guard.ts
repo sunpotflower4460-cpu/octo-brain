@@ -3,7 +3,7 @@
 // クォータの残量チェックは「読むだけ」で安全側(多少の超過は許容しユーザーを不当に止めない)。
 
 import type { Env } from "../types.js";
-import { quotaKey, readDailySpendUsd } from "./costlog.js";
+import { parseQuotaValue, quotaKey, readDailySpendUsd } from "./costlog.js";
 
 export const DEFAULT_FREE_MONTHLY_QUOTA = 100;
 export const DEFAULT_MIN_INTERVAL_MS = 1500;
@@ -59,6 +59,17 @@ export interface QuotaState {
   used: number;
   limit: number;
   allowed: boolean;
+  // 1人の1日上限(共有予算を少数の人が使い切らないため)
+  dayUsed: number;
+  dayLimit: number;
+  dayAllowed: boolean;
+}
+
+// 1人の1日上限(単位)。既定 20(ライト20回/ディープ10回)。FREE_DAILY_QUOTA で変更。
+export const DEFAULT_FREE_DAILY_QUOTA = 20;
+
+export function dailyQuotaLimit(env: Env): number {
+  return numEnv(env, "FREE_DAILY_QUOTA", DEFAULT_FREE_DAILY_QUOTA);
 }
 
 export async function checkQuota(
@@ -67,18 +78,26 @@ export async function checkQuota(
   now: Date,
   limit: number,
   units = 1,
+  dayLimit = DEFAULT_FREE_DAILY_QUOTA,
 ): Promise<QuotaState> {
   let used = 0;
+  let dayUsed = 0;
   try {
-    const cur = await kv.get(quotaKey(clientId, now));
-    const parsed = cur ? parseInt(cur, 10) : 0;
-    used = Number.isFinite(parsed) ? parsed : 0;
+    const v = parseQuotaValue(await kv.get(quotaKey(clientId, now)), now);
+    used = v.month;
+    dayUsed = v.day;
   } catch {
     // KV 読み取り失敗は安全側(ブロックしない)
-    used = 0;
   }
   // 今回の消費分(units)を足して上限以内なら受理。deep(2単位)は残り1では通さない。
-  return { used, limit, allowed: used + units <= limit };
+  return {
+    used,
+    limit,
+    allowed: used + units <= limit,
+    dayUsed,
+    dayLimit,
+    dayAllowed: dayUsed + units <= dayLimit,
+  };
 }
 
 // ---- 全体の1日予算(課金なし運用のサーキットブレーカー) ----
@@ -92,11 +111,18 @@ export function dailyBudgetUsd(env: Env): number {
   return Number.isFinite(n) && n > 0 ? n : DEFAULT_DAILY_BUDGET_USD;
 }
 
+// 予算の逼迫度で段階的に軽くする(いきなり全停止にしない)。
+// - normal : 通常
+// - economy: 予算の ECONOMY_RATIO 以上。deep はライトで答え、統合脳の推論を切る(原価を約半分に)
+// - 予算超過: 当日は受付停止(allowed=false)
+export const ECONOMY_RATIO = 0.7;
+export type BudgetMode = "normal" | "economy";
+
 export async function checkDailyBudget(
   kv: KVNamespace,
   env: Env,
   now: Date,
-): Promise<{ allowed: boolean; spentUsd: number; budgetUsd: number }> {
+): Promise<{ allowed: boolean; mode: BudgetMode; spentUsd: number; budgetUsd: number }> {
   const budgetUsd = dailyBudgetUsd(env);
   let spentUsd = 0;
   try {
@@ -104,7 +130,8 @@ export async function checkDailyBudget(
   } catch {
     // KV 読み取り失敗は安全側(止めない)。個人・IP の上限は別に効いている
   }
-  return { allowed: spentUsd < budgetUsd, spentUsd, budgetUsd };
+  const mode: BudgetMode = spentUsd >= budgetUsd * ECONOMY_RATIO ? "economy" : "normal";
+  return { allowed: spentUsd < budgetUsd, mode, spentUsd, budgetUsd };
 }
 
 // ---- IP 単位の1日上限 ----

@@ -31,7 +31,7 @@ describe("checkQuota", () => {
     const { kv, store } = makeKV();
     store.set(quotaKey("c1", NOW), "50");
     const q = await checkQuota(kv, "c1", NOW, 100);
-    expect(q).toEqual({ used: 50, limit: 100, allowed: true });
+    expect(q).toMatchObject({ used: 50, limit: 100, allowed: true });
   });
 
   it("上限到達で block", async () => {
@@ -44,7 +44,7 @@ describe("checkQuota", () => {
   it("未使用は used=0 で allowed", async () => {
     const { kv } = makeKV();
     const q = await checkQuota(kv, "new", NOW, 100);
-    expect(q).toEqual({ used: 0, limit: 100, allowed: true });
+    expect(q).toMatchObject({ used: 0, limit: 100, allowed: true, dayUsed: 0, dayAllowed: true });
   });
 
   it("KV読み取り失敗は安全側(ブロックしない)", async () => {

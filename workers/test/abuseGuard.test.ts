@@ -175,7 +175,7 @@ describe("IP 単位の制限(clientId 使い捨て対策)", () => {
 describe("全体の1日予算(課金なし運用のサーキットブレーカー)", () => {
   it("当日の原価が DAILY_BUDGET_USD に達していたら 503 daily_budget_exceeded", async () => {
     const { spendKey } = await import("../src/lib/costlog.js");
-    const { kv } = kvMock({ [spendKey(new Date())]: String(3_000_000) }); // $3.00
+    const { kv } = kvMock({ [spendKey(new Date(), 0)]: String(3_000_000) }); // $3.00
     const res = await app.request(
       req("/api/analyze", { input: "a", clientId: "c-budget" }),
       {},
@@ -187,7 +187,7 @@ describe("全体の1日予算(課金なし運用のサーキットブレーカ�
 
   it("予算内なら通常どおり(ガードの次段へ進む)", async () => {
     const { spendKey } = await import("../src/lib/costlog.js");
-    const { kv } = kvMock({ [spendKey(new Date())]: String(2_999_999) });
+    const { kv } = kvMock({ [spendKey(new Date(), 0)]: String(1_000_000) });
     const limiter = { limit: async () => ({ success: false }) } as unknown as RateLimit;
     const res = await app.request(
       req("/api/analyze", { input: "a", clientId: "c-budget2" }, "203.0.113.20"),
@@ -208,5 +208,56 @@ describe("全体の1日予算(課金なし運用のサーキットブレーカ�
       await logCost(kv, `r-${cost}`, col, { quorum: "4/4", fallback: false }, now);
     }
     expect(await readDailySpendUsd(kv, now)).toBeCloseTo(0.002, 6);
+  });
+});
+
+describe("大勢が使うときの対策(予算の分散記録・段階的縮退・1人の1日上限)", () => {
+  it("予算は分散キーに記録され、合算して読める(同一キーへの書き込み集中を避ける)", async () => {
+    const { CostCollector, logCost, readDailySpendUsd, SPEND_SHARDS } = await import("../src/lib/costlog.js");
+    const { kv, store } = kvMock();
+    const now = new Date();
+    for (let i = 0; i < 40; i++) {
+      const col = new CostCollector();
+      col.record({ role: "synth", model: "m", inTok: 1, outTok: 1, estCost: 0.001, ms: 1, estimated: false });
+      await logCost(kv, `r${i}`, col, { quorum: "4/4", fallback: false }, now);
+    }
+    const spendKeys = [...store.keys()].filter((k) => k.startsWith("spend:"));
+    expect(spendKeys.length).toBeGreaterThan(1);
+    expect(spendKeys.length).toBeLessThanOrEqual(SPEND_SHARDS);
+    expect(await readDailySpendUsd(kv, now)).toBeCloseTo(0.04, 6);
+  });
+
+  it("予算の70%を超えたら economy(ライト・推論なし)で答え、meta.economy を立てる", async () => {
+    const { checkDailyBudget } = await import("../src/lib/guard.js");
+    const { spendKey } = await import("../src/lib/costlog.js");
+    const now = new Date();
+    const { kv } = kvMock({ [spendKey(now, 3)]: String(2_200_000) }); // $2.2 / $3
+    const b = await checkDailyBudget(kv, { OCTO_KV: kv, DAILY_BUDGET_USD: "3" } as never, now);
+    expect(b).toMatchObject({ allowed: true, mode: "economy" });
+    const b2 = await checkDailyBudget(kvMock().kv, { DAILY_BUDGET_USD: "3" } as never, now);
+    expect(b2.mode).toBe("normal");
+  });
+
+  it("1人の1日上限に達したら 429 daily_quota_exceeded(月間枠が残っていても)", async () => {
+    const now = new Date();
+    const d = `${now.getUTCFullYear()}${String(now.getUTCMonth() + 1).padStart(2, "0")}${String(now.getUTCDate()).padStart(2, "0")}`;
+    const { kv } = kvMock({ [quotaKey("c-day", now)]: `30|${d}|20` });
+    const res = await app.request(
+      req("/api/analyze", { input: "a", clientId: "c-day" }),
+      {},
+      { OCTO_KV: kv, FREE_DAILY_QUOTA: "20" },
+    );
+    expect(res.status).toBe(429);
+    const j = (await res.json()) as { error: string; limit: number };
+    expect(j.error).toBe("daily_quota_exceeded");
+    expect(j.limit).toBe(20);
+  });
+
+  it("前日の日次カウントは持ち越さない(旧形式の値も読める)", async () => {
+    const { parseQuotaValue } = await import("../src/lib/costlog.js");
+    const now = new Date("2026-09-30T10:00:00Z");
+    expect(parseQuotaValue("30|20260929|20", now)).toEqual({ month: 30, day: 0 });
+    expect(parseQuotaValue("12", now)).toEqual({ month: 12, day: 0 });
+    expect(parseQuotaValue("5|20260930|3", now)).toEqual({ month: 5, day: 3 });
   });
 });

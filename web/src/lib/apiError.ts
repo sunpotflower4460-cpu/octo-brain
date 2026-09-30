@@ -40,6 +40,13 @@ export function humanizeApiError(status: number, body: unknown): HumanError {
         code,
         message: "本日の利用上限に達しました。明日もう一度お試しください。",
       };
+    case "daily_quota_exceeded":
+      return {
+        code,
+        message: limit
+          ? `今日の利用上限(${limit}回分)に達しました。明日またお試しください。`
+          : "今日の利用上限に達しました。明日またお試しください。",
+      };
     case "daily_budget_exceeded":
       return {
         code,

@@ -12,6 +12,8 @@ import {
   releaseSlot,
   checkQuota,
   checkDailyBudget,
+  dailyQuotaLimit,
+  type BudgetMode,
   peekIpQuota,
   addIpQuota,
   deepPlanEnabled,
@@ -193,6 +195,13 @@ export function validateAnalyzeBody(body: unknown): ValidatedBody {
 interface GuardResult {
   blocked: Response | null;
   release: () => Promise<void>;
+  // 予算の逼迫度。economy なら呼び出し側で軽いモードに落とす
+  mode: BudgetMode;
+}
+
+// 予算逼迫時(economy)の env: 統合脳の推論を切って原価を下げる
+function economyEnv(env: Env): Env {
+  return { ...env, LUNA_SYNTH_REASONING: "none" };
 }
 
 async function guardRequest(
@@ -223,7 +232,7 @@ async function guardRequest(
       minIntervalMs: numEnv(env, "MIN_INTERVAL_MS", DEFAULT_MIN_INTERVAL_MS),
       lockMs: DEFAULT_LOCK_MS,
     }),
-    checkQuota(kv, clientId, now, quotaLimit(env), units),
+    checkQuota(kv, clientId, now, quotaLimit(env), units, dailyQuotaLimit(env)),
     ip ? peekIpQuota(kv, ip, now, ipLimit) : Promise.resolve(null),
   ]);
 
@@ -233,7 +242,7 @@ async function guardRequest(
   // 弾くときは、確保できていたスロットを解放してから返す
   const block = async (res: Response): Promise<GuardResult> => {
     if (slot.ok) await release();
-    return { blocked: res, release: noRelease };
+    return { blocked: res, release: noRelease, mode: "normal" };
   };
 
   // 判定の優先順: 全体予算 → IP バースト → 連打防止 → 月間クォータ → IP の1日上限
@@ -252,10 +261,17 @@ async function guardRequest(
         "Retry-After": String(retryAfterSec),
       }),
       release: noRelease,
+      mode: "normal",
     };
   }
   if (!q.allowed) {
     return block(c.json({ error: "quota_exceeded", limit: q.limit, used: q.used, units }, 429));
+  }
+  if (!q.dayAllowed) {
+    // 1人の1日上限。共有の予算を少数の利用者が使い切らないようにする
+    return block(
+      c.json({ error: "daily_quota_exceeded", limit: q.dayLimit, used: q.dayUsed, units }, 429),
+    );
   }
   if (ipq && !ipq.allowed) {
     return block(c.json({ error: "ip_quota_exceeded" }, 429));
@@ -264,7 +280,7 @@ async function guardRequest(
   // 受理: IP の1日上限に今回分を加算(受理時点で数える=失敗リクエストも含む)
   if (ip && ipq) await addIpQuota(kv, ip, now, ipq.used, units);
 
-  return { blocked: null, release };
+  return { blocked: null, release, mode: daily.mode };
 }
 
 // メイン分析エンドポイント (§9 P1契約: 一括JSON)。ベンチ(P3)でも使う。
@@ -288,11 +304,14 @@ app.post("/api/analyze", async (c) => {
   // クライアント切断でもモデル呼び出しを止め、無駄な原価・クォータ消化を防ぐ。
   const signal = combineAbortSignals(budget, c.req.raw.signal);
   try {
-    const res = await runAnalyze(v.value, {
-      env: c.env,
+    // 予算逼迫時は deep もライトで答え、統合脳の推論を切る(meta.economy で利用者に伝える)
+    const economy = guard.mode === "economy";
+    const res = await runAnalyze(economy ? { ...v.value, plan: "light" } : v.value, {
+      env: economy ? economyEnv(c.env) : c.env,
       now: new Date(),
       requestId: crypto.randomUUID(),
       signal,
+      economy,
     });
     return c.json(res);
   } catch (err) {
@@ -347,9 +366,16 @@ app.post("/api/analyze/stream", async (c) => {
   const signal = combineAbortSignals(budget, c.req.raw.signal, clientGone.signal);
   const pump = async (): Promise<void> => {
     try {
+      const economy = guard.mode === "economy";
       await runAnalyzeStream(
-        v.value,
-        { env: c.env, now: new Date(), requestId: crypto.randomUUID(), signal },
+        economy ? { ...v.value, plan: "light" } : v.value,
+        {
+          env: economy ? economyEnv(c.env) : c.env,
+          now: new Date(),
+          requestId: crypto.randomUUID(),
+          signal,
+          economy,
+        },
         emit,
       );
     } catch (err) {
@@ -426,7 +452,12 @@ app.post("/api/deepen", async (c) => {
   try {
     const res = await runDeepen(
       { input, summary, tension: { axis: axisText }, priorAnswer, clientId },
-      { env: c.env, now: new Date(), requestId: crypto.randomUUID(), signal },
+      {
+        env: guard.mode === "economy" ? economyEnv(c.env) : c.env,
+        now: new Date(),
+        requestId: crypto.randomUUID(),
+        signal,
+      },
     );
     return c.json(res);
   } catch (err) {
@@ -480,7 +511,12 @@ app.post("/api/resonate", async (c) => {
   try {
     const res = await runResonate(
       { input, summary, resonance: { a: v.a, b: v.b }, priorAnswer, clientId },
-      { env: c.env, now: new Date(), requestId: crypto.randomUUID(), signal },
+      {
+        env: guard.mode === "economy" ? economyEnv(c.env) : c.env,
+        now: new Date(),
+        requestId: crypto.randomUUID(),
+        signal,
+      },
     );
     return c.json(res);
   } catch (err) {
