@@ -16,6 +16,8 @@ export interface CoreViewModel {
   phase: UiPhase;
   lenses: CoreLens[]; // 常に8件(nodeDisplay順)
   reducedMotion: boolean;
+  // 描画の上限フレームレート(背景の装飾用)。未指定なら処理中は毎フレーム・待機中は約7fps
+  maxFps?: number;
 }
 
 const TAU = Math.PI * 2;
@@ -70,7 +72,11 @@ export default function CoreCanvas({ vm }: { vm: CoreViewModel }) {
         state.phase !== "error" &&
         state.phase !== "cancelled";
       // idle/完了時は省電力(低頻度)、処理中のみ滑らか
-      const interval = active && !state.reducedMotion ? 0 : 140;
+      const interval = state.maxFps
+        ? 1000 / state.maxFps
+        : active && !state.reducedMotion
+          ? 0
+          : 140;
       if (tms - last < interval) {
         raf = requestAnimationFrame(draw);
         return;

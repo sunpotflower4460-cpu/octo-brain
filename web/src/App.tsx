@@ -16,6 +16,7 @@ import { presentPhase } from "./lib/phasePresentation";
 import { useReducedMotion } from "./hooks/useReducedMotion";
 import { useAutoScroll } from "./hooks/useAutoScroll";
 import { useOnlineStatus } from "./hooks/useOnlineStatus";
+import { useMediaQuery } from "./hooks/useMediaQuery";
 import {
   createStorage,
   titleFromInput,
@@ -82,6 +83,8 @@ export default function App() {
   const [aiConsent, setAiConsentState] = useState(false);
   const [pendingSend, setPendingSend] = useState<string | null>(null);
   const online = useOnlineStatus();
+  // lg(1024px)以上だけ左カラムの Living Core を出す。スマホでは描画ループごとマウントしない
+  const isDesktop = useMediaQuery("(min-width: 1024px)");
 
   const reducedMotion = useReducedMotion(settings.motion);
   const { scrollRef, sentinelRef, showJump, scrollToBottom, followIfAtBottom } =
@@ -164,7 +167,8 @@ export default function App() {
     const s = storageRef.current;
     const conv = buildStored();
     if (!s || !conv) return;
-    await s.save(conv);
+    // 保存失敗(容量不足等)は握りつぶさず、「この端末に保存されていない」表示に反映する
+    setStorageAvailable(s.available && (await s.save(conv)));
     // メタ一覧を楽観更新(並べ替えのため)
     setConvMetas((prev) => {
       const meta = { id: conv.id, title: conv.title, updatedAt: conv.updatedAt };
@@ -329,8 +333,11 @@ export default function App() {
 
   // ---- 送信 ----
   const runAnalyze = async (text: string) => {
-    // clientId 未初期化時は送らない(マウント直後の極端なレース)
-    if (!clientIdRef.current) return;
+    // clientId 未初期化時は送らない(マウント直後の極端なレース)。入力は消さずに戻す
+    if (!clientIdRef.current) {
+      setInput(text);
+      return;
+    }
     const assistantId = uuid();
     setMessages((prev) => [
       ...prev,
@@ -692,14 +699,16 @@ export default function App() {
       <main className="relative z-10 flex-1 min-h-0 flex">
         {/* 左: Living Core (desktop) */}
         <aside className="hidden lg:flex flex-col w-[var(--core-col)] flex-shrink-0 border-r border-[var(--line-soft)] bg-[var(--bg-depth)]/40 backdrop-blur-[2px] p-5">
-          <div className="sticky top-5">
-            <LivingCore
-              trace={coreTrace}
-              reducedMotion={reducedMotion}
-              emphasis={coreEmphasis}
-              variant={empty && !busy ? "hero" : "working"}
-            />
-          </div>
+          {isDesktop && (
+            <div className="sticky top-5">
+              <LivingCore
+                trace={coreTrace}
+                reducedMotion={reducedMotion}
+                emphasis={coreEmphasis}
+                variant={empty && !busy ? "hero" : "working"}
+              />
+            </div>
+          )}
         </aside>
 
         {/* 右: 会話 */}

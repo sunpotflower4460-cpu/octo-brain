@@ -15,6 +15,8 @@ export default function Markdown({ children }: { children: string }) {
               <span aria-hidden> ↗</span>
             </a>
           ),
+          // AI 出力内の画像は読み込まない(外部サーバーへの意図しない通信・追跡を防ぐ)。代替テキストだけ出す
+          img: ({ alt }) => (alt ? <span className="text-[var(--text-muted)]">[画像: {alt}]</span> : null),
         }}
       >
         {children}
