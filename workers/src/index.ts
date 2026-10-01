@@ -47,6 +47,18 @@ const VALID_PLANS: Plan[] = ["light", "deep"];
 const app = new Hono<{ Bindings: Env }>();
 
 // ログ用のエラー詳細。上流の応答本文にキーらしき文字列が混ざっても伏せる。
+// KV のキーに接頭辞を付ける(get / put / delete / list)
+export function scopedKv(kv: KVNamespace, prefix: string): KVNamespace {
+  const k = (key: string) => `${prefix}${key}`;
+  return {
+    get: ((key: string, opts?: unknown) => kv.get(k(key), opts as never)) as KVNamespace["get"],
+    put: ((key: string, value: string, opts?: KVNamespacePutOptions) => kv.put(k(key), value, opts)) as KVNamespace["put"],
+    delete: (key: string) => kv.delete(k(key)),
+    list: ((opts?: KVNamespaceListOptions) => kv.list({ ...opts, prefix: k(opts?.prefix ?? "") })) as KVNamespace["list"],
+    getWithMetadata: ((key: string, opts?: unknown) => kv.getWithMetadata(k(key), opts as never)) as KVNamespace["getWithMetadata"],
+  } as KVNamespace;
+}
+
 function errDetail(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
   return msg.replace(/\b(sk|key|token)[-_A-Za-z0-9]{8,}/gi, "$1-***");
@@ -54,6 +66,16 @@ function errDetail(err: unknown): string {
 
 // CORS: 開発は localhost:5173、Capacitor(iOS/Android WebView)は localhost 系オリジン、
 // 本番オリジンは環境変数 ALLOWED_ORIGIN で指定。
+// 開発環境(評価用のプレビュー)は KV のキーに "dev:" を付けて本番と分ける。
+// プレビューと本番は同じ KV を使うため、評価の利用が本番の「1日の予算」「利用回数」を消費し、
+// 本番が軽いモード・受付停止になり得た。原価ログ・予算・利用回数・連打防止をまとめて分離する。
+app.use("*", async (c, next) => {
+  if (c.env?.ENVIRONMENT === "development" && c.env.OCTO_KV) {
+    c.env = { ...c.env, OCTO_KV: scopedKv(c.env.OCTO_KV, "dev:") };
+  }
+  await next();
+});
+
 app.use("/api/*", (c, next) => {
   const allowed = [
     "capacitor://localhost", // iOS WKWebView (Capacitor 既定オリジン)

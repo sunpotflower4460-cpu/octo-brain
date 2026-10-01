@@ -42,3 +42,31 @@ describe("/api/dev/baseline(比較評価用)は本番で無効", () => {
     expect((await app.request(req(), {}, { ENVIRONMENT: "production" })).status).toBe(404);
   });
 });
+
+describe("開発環境の KV は本番と分ける", () => {
+  it("ENVIRONMENT=development では KV のキーに dev: を付け、本番のキー(予算・利用回数)に触れない", async () => {
+    const { default: app } = await import("../src/index.js");
+    const store = new Map<string, string>();
+    const kv = {
+      get: async (k: string) => store.get(k) ?? null,
+      put: async (k: string, v: string) => void store.set(k, v),
+    } as unknown as KVNamespace;
+    // 入力不備で早く返るが、その前の連打防止・利用回数のチェックで KV を読む/書く経路を通す
+    await app.request(
+      new Request("http://x/api/analyze", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ input: "a", clientId: "c-dev-1" }) }),
+      {},
+      { OCTO_KV: kv, ENVIRONMENT: "development" },
+    );
+    const keys = [...store.keys()];
+    expect(keys.length).toBeGreaterThan(0);
+    expect(keys.every((k) => k.startsWith("dev:"))).toBe(true);
+  });
+
+  it("scopedKv は list の接頭辞にも付ける", async () => {
+    const { scopedKv } = await import("../src/index.js");
+    let seen = "";
+    const kv = { list: async (o: { prefix: string }) => ((seen = o.prefix), { keys: [], list_complete: true }) } as unknown as KVNamespace;
+    await scopedKv(kv, "dev:").list({ prefix: "cost:" });
+    expect(seen).toBe("dev:cost:");
+  });
+});
