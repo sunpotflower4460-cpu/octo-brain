@@ -119,6 +119,8 @@ export interface NodeResult {
   // その世界の見方・経験(その世界でよくあることとして。架空の個人の体験談ではない)
   experience?: string;
   facts?: Fact[];
+  // 相談者が取れる具体的な一手(世界の知恵の置き換え / 照合モードでは次の手順)
+  move?: string;
 }
 
 // Workers バインディング。wrangler.toml と対応

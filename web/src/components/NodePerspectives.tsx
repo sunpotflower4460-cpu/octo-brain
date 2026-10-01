@@ -117,9 +117,11 @@ function NodeCard({
         )}
       </div>
 
-      {!failed && node.world && (
+      {!failed && (node.world || (node.facts && node.facts.length > 0) || node.move) && (
         <div className="mb-2 rounded-lg bg-[var(--surface-1)] px-2.5 py-2">
-          <div className="text-[11px] font-semibold text-[var(--cyan)]">{node.world}の世界から</div>
+          <div className="text-[11px] font-semibold text-[var(--cyan)]">
+            {node.world ? `${node.world}の世界から` : "確かめたこと"}
+          </div>
           {node.experience && (
             <p className="mt-0.5 text-[12px] leading-relaxed text-[var(--text-secondary)]">{node.experience}</p>
           )}
@@ -133,6 +135,12 @@ function NodeCard({
                 </li>
               ))}
             </ul>
+          )}
+          {node.move && (
+            <p className="mt-1.5 text-[12px] leading-relaxed text-[var(--text-primary)]">
+              <span className="mr-1 text-[10px] font-semibold text-[var(--violet)]">一手</span>
+              {node.move}
+            </p>
           )}
         </div>
       )}

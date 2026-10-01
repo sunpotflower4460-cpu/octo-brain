@@ -17,22 +17,26 @@ function Lens({ id, world }: { id: string; world?: string }) {
 export default function PerspectiveMapCard({
   map,
   nodes,
+  check = false,
 }: {
   map: PerspectiveMap;
   nodes?: NodeView[];
+  // 照合モード(法律・事実の質問): 視点の「意見の分かれ方」ではなく「確かめの一致・食い違い」として見せる
+  check?: boolean;
 }) {
+  const label = check
+    ? { title: "照合の地図", lead: "それぞれの視点が別々に確かめた結果の、一致と食い違いです。", lone: "ひとつの視点だけが挙げた条件", split: "食い違ったところ(要確認)", agree: "一致した事実" }
+    : { title: "視点の地図", lead: "ひとつの答えにまとめると見えなくなる、視点の分かれ方です。", lone: "ひとつの視点だけが指摘", split: "割れたところ", agree: "そろった見方" };
   // 分母は「実際に意見を出せた視点」の数(起動していない・降りた腕は数えない)
   const usable = (nodes ?? []).filter((n) => n.status === "ok" && n.opinions.length > 0 && !n.flag).length;
   return (
     <section
-      aria-label="視点の地図"
+      aria-label={label.title}
       className="mt-3 rounded-[var(--radius)] border border-[var(--line-soft)] bg-[var(--surface-1)] p-4 space-y-4"
     >
       <div>
-        <h3 className="text-sm font-semibold text-[var(--text-primary)]">視点の地図</h3>
-        <p className="mt-0.5 text-[11px] text-[var(--text-muted)]">
-          ひとつの答えにまとめると見えなくなる、視点の分かれ方です。
-        </p>
+        <h3 className="text-sm font-semibold text-[var(--text-primary)]">{label.title}</h3>
+        <p className="mt-0.5 text-[11px] text-[var(--text-muted)]">{label.lead}</p>
       </div>
 
       {map.essence && (
@@ -48,7 +52,7 @@ export default function PerspectiveMapCard({
       {map.lone && (
         <div className="rounded-[var(--radius-sm)] border border-[var(--violet)]/40 bg-[var(--violet)]/10 p-3">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-[11px] font-semibold text-[var(--violet)]">ひとつの視点だけが指摘</span>
+            <span className="text-[11px] font-semibold text-[var(--violet)]">{label.lone}</span>
             <Lens id={map.lone.lens} world={map.lone.world} />
           </div>
           <p className="mt-1.5 text-[14px] leading-relaxed text-[var(--text-primary)]">{map.lone.claim}</p>
@@ -59,7 +63,7 @@ export default function PerspectiveMapCard({
       {map.split && (
         <div>
           <div className="text-[11px] font-semibold text-[var(--text-muted)]">
-            割れたところ・{map.split.about}
+            {label.split}・{map.split.about}
           </div>
           <div className="mt-1.5 grid grid-cols-1 sm:grid-cols-2 gap-2">
             {[map.split.a, map.split.b].map((p) => (
@@ -75,7 +79,7 @@ export default function PerspectiveMapCard({
       {map.agree && (
         <div>
           <div className="text-[11px] font-semibold text-[var(--text-muted)]">
-            そろった見方{usable > 0 ? `・${usable}つ中${map.agree.lenses.length}つ` : ""}
+            {label.agree}{usable > 0 ? `・${usable}つ中${map.agree.lenses.length}つ` : ""}
           </div>
           <p className="mt-1 text-[13px] leading-relaxed text-[var(--text-primary)]">{map.agree.point}</p>
           <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">

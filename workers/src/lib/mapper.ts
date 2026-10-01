@@ -18,17 +18,27 @@ const MAPPER_SYSTEM = `あなたは、複数の独立した視点の意見を見
 該当が無いものは null。無理に作らない。相談が単純な事実・相場・手順の質問や作業の依頼(迷いや判断を含まないもの)なら、すべて null にする。出力は次のJSONのみ(前置き禁止):
 {"agree":{"point":"","ids":[1,2,3]} | null,"split":{"about":"","a":1,"b":2} | null,"lone":{"id":1,"why":""} | null,"essence":{"point":"","worlds":[1,2,3]} | null}`;
 
+// 照合モード(法律・事実の質問)の地図。違う意見ではなく、独立した確かめの一致・食い違いを見る
+const MAPPER_CHECK_SYSTEM = `あなたは、複数の確認役が独立に確かめた事実と意見を見比べて「照合の地図」を作る係です。要約したり、自分の意見を足したりしない。
+次の3つを見つける:
+- agree: 3つ以上(確認役が4つ以下なら2つ以上)が、表現は違っても同じ内容を挙げた事実や結論。point に一文で。ids に番号
+- split: 2つの確認役が、同じ点について食い違う(数字・条件・結論が違う)ことを言っているところ。about に何が食い違ったか一文で。a と b に番号(別の確認役から)
+- lone: ひとつの確認役だけが挙げていて、見落とすと相談者が困る条件・例外・期限・手順。id に番号、why に見落とせない理由を一文で
+該当が無いものは null。無理に作らない。essence は常に null。出力は次のJSONのみ(前置き禁止):
+{"agree":{"point":"","ids":[1,2,3]} | null,"split":{"about":"","a":1,"b":2} | null,"lone":{"id":1,"why":""} | null,"essence":null}`;
+
 interface Item {
   lens: string;
   claim: string;
   world?: string;
 }
 
-// 使えた腕の意見を番号付きで並べる(番号 → 腕・元の文)
-export function mapperItems(nodes: NodeResult[]): Item[] {
-  return nodes
-    .filter(isUsableNode)
-    .flatMap((n) => n.opinions.map((o) => ({ lens: n.id as string, claim: o.claim, ...(n.world ? { world: n.world } : {}) })));
+// 使えた腕の意見を番号付きで並べる(番号 → 腕・元の文)。照合モードでは確かめた事実も並べる
+export function mapperItems(nodes: NodeResult[], check = false): Item[] {
+  return nodes.filter(isUsableNode).flatMap((n) => [
+    ...(check ? (n.facts ?? []).map((f) => ({ lens: n.id as string, claim: f.text })) : []),
+    ...n.opinions.map((o) => ({ lens: n.id as string, claim: o.claim, ...(n.world ? { world: n.world } : {}) })),
+  ]);
 }
 
 // 世界つきの腕の経験(番号 E1.. → 腕・世界)
@@ -141,16 +151,16 @@ export function salvageSections(raw: string): Record<string, unknown> {
 export async function runMapper(
   input: string,
   nodes: NodeResult[],
-  opts: { env: Env; collector?: CostSink; signal?: AbortSignal; onFailure?: (reason: string) => void },
+  opts: { env: Env; collector?: CostSink; signal?: AbortSignal; check?: boolean; onFailure?: (reason: string) => void },
 ): Promise<PerspectiveMap | null> {
-  const items = mapperItems(nodes);
+  const items = mapperItems(nodes, opts.check === true);
   if (items.length < 3) return null;
   const exps = mapperExperiences(nodes);
   try {
     const res = await callModel(
       "mapper",
       [
-        { role: "system", content: MAPPER_SYSTEM },
+        { role: "system", content: opts.check ? MAPPER_CHECK_SYSTEM : MAPPER_SYSTEM },
         { role: "user", content: buildMapperInput(input, items, exps) },
       ],
       { env: opts.env, collector: opts.collector, signal: opts.signal },

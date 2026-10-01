@@ -27,6 +27,8 @@ export interface NodeView {
   world?: string;
   experience?: string;
   facts?: { text: string; sure: number }[];
+  // 相談者が取れる具体的な一手(世界の知恵の置き換え / 照合モードでは次の手順)
+  move?: string;
 }
 
 // 最緊張軸 (§5)
@@ -70,6 +72,8 @@ export interface AnalyzeMeta {
   // 利用状況(残り回数の表示用)
   quota?: QuotaStatus;
   boundary?: BoundaryKind | null;
+  // 探求のしかた(explore: 違う世界から探求 / check: 法律・事実を全腕で照合)
+  inquiry?: "explore" | "check";
   // 調べて確かめた資料(回答の下に出典として出す)
   sources?: SourceRef[];
   warnings?: string[];
