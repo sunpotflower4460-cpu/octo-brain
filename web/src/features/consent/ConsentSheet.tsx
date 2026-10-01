@@ -45,7 +45,7 @@ export default function ConsentSheet({
             回答を作るため、入力した文章と会話の短い要約を、外部の AI サービス
             <strong className="text-[var(--text-primary)]">
               {" "}
-              OpenAI(米国)または DeepSeek(中国)
+              OpenAI(米国)。混雑時は Groq(米国)・さくらインターネット(日本)・DeepSeek(中国)
             </strong>
             に送信します。
           </li>

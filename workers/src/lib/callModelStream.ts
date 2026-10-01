@@ -3,7 +3,7 @@
 // 非ストリーミングの callModel と同じく、終了時に collector へ原価ログを1件記録する。
 
 import {
-  fallbackFor,
+  fallbackChain,
   modelFor,
   estimateCost,
   type ModelConfig,
@@ -11,12 +11,16 @@ import {
 } from "../config/models.js";
 import {
   cachedOf,
+  isAbortError,
   ModelHttpError,
   rateLimitOf,
+  retryAfterMs,
+  shouldCoolDown,
   shouldFallback,
   type CallModelOpts,
 } from "./callModel.js";
 import type { ChatMessage } from "../types.js";
+import { coolDown, liveCandidates } from "./providerHealth.js";
 
 interface StreamPiece {
   delta?: string;
@@ -35,20 +39,27 @@ export async function* callModelStream(
 ): AsyncGenerator<string, void, unknown> {
   const primary = opts.modelOverride ?? modelFor(role, opts.env);
   const start = nowMs();
-  // ストリームの開始時に混雑(429)・障害(5xx)・接続失敗なら、もう一方のプロバイダーで開き直す。
-  // 本文を流し始めた後は切り替えない(二重の本文にしないため)。
+  // ストリームの開始時に混雑(429)・障害(5xx)・接続失敗なら、次の候補(無料枠 → もう一方の有料構成)で開き直す。
+  // 本文を流し始めた後は切り替えない(二重の本文にしないため)。最近混雑した相手は飛ばす。
+  const candidates = liveCandidates([primary, ...fallbackChain(role, opts.env, primary)]);
   let cfg = primary;
   let fellBack = false;
-  let res: Response;
-  try {
-    res = await openStream(role, primary, messages, opts);
-  } catch (err) {
-    const fb = shouldFallback(err) ? fallbackFor(role, opts.env, primary) : null;
-    if (!fb) throw err;
-    cfg = fb;
-    fellBack = true;
-    res = await openStream(role, fb, messages, opts);
+  let res: Response | null = null;
+  let lastErr: unknown;
+  for (const c of candidates) {
+    try {
+      res = await openStream(role, c, messages, opts);
+      cfg = c;
+      fellBack = c !== primary;
+      break;
+    } catch (err) {
+      if (isAbortError(err)) throw err;
+      lastErr = err;
+      if (shouldCoolDown(err)) coolDown(c, err instanceof ModelHttpError ? err.retryAfterMs : 0);
+      if (c === primary && !shouldFallback(err)) throw err;
+    }
   }
+  if (res === null) throw lastErr;
   const body = res.body as ReadableStream<Uint8Array>;
 
   let acc = "";
@@ -106,6 +117,7 @@ async function openStream(
     throw new ModelHttpError(
       `callModelStream(${role}) HTTP ${res.status}: ${text.slice(0, 300)}`,
       res.status,
+      retryAfterMs(res),
     );
   }
   return res;

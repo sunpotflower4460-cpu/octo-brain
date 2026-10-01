@@ -16,5 +16,6 @@ export default defineConfig({
     // fetch はモックするため Node 環境で十分 (workerd 不要)。
     environment: "node",
     include: ["test/**/*.test.ts"],
+    setupFiles: ["test/setup.ts"],
   },
 });

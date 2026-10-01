@@ -40,6 +40,9 @@ DAILY_BUDGET_USD = "3"
 # MODEL_PROFILE: "deepseek" | "luna"。未指定なら OPENAI_API_KEY の有無で自動(あれば luna)
 # MODEL_FALLBACK: 主のプロバイダーが混雑(429)・障害(5xx)のとき、もう一方へ自動で切り替える。
 #   両方のキーがあれば有効。止めるときは "off"
+# 切り替えの順: 無料枠(Groq: GROQ_API_KEY → さくらのAI Engine: SAKURA_API_KEY)→ もう一方の有料構成(DeepSeek)。
+#   キーを `wrangler secret put` で入れたものだけ使う。無料枠を使わないときは FREE_FALLBACK = "off"
+#   混雑・障害が出た相手は、同じ実行環境で20秒(Retry-After があれば最大60秒)飛ばす
 # MODEL_PROFILE = "luna"
 # LUNA_SYNTH_REASONING: luna 構成で統合脳だけ推論をオン("none" | "low" | "medium" | "high")。
 # 質は上がり得るが推論トークン分の原価と待ち時間が増える(docs/pricing_notes.md)

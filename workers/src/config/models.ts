@@ -81,29 +81,7 @@ const LUNA = {
 // 比較評価用(開発環境の /api/dev/baseline だけで使う)。「普通のチャットボット」相当:
 // 同じ Luna を推論つき(既定の medium)で1回呼ぶ構成と、上位の GPT-6.1 Sol。
 // 審査役は Sol と、別の会社の DeepSeek V4 Pro(OpenAI 同士の自己びいきを避けるため両方で採点する)。
-export const BASELINE_MODELS: Record<"luna" | "sol" | "pro", ModelConfig> = {
-  luna: {
-    ...LUNA,
-    extraBody: { reasoning_effort: "medium" },
-    maxTokens: 2000,
-    reasoningBudget: 8000,
-  },
-  sol: {
-    provider: "openai-compat",
-    baseURL: "https://api.openai.com/v1",
-    model: "gpt-6.1-sol",
-    keyEnv: "OPENAI_API_KEY",
-    pricePerMTokIn: 2,
-    pricePerMTokOut: 10,
-    pricePerMTokCachedIn: 0.1,
-    extraBody: { reasoning_effort: "medium" },
-    maxTokensParam: "max_completion_tokens",
-    maxTokens: 3000,
-    reasoningBudget: 8000,
-  },
-  // 評価の審査役(別の会社のモデル。OpenAI 同士の自己びいきを避ける)
-  pro: { ...PRO, maxTokens: 4000 },
-};
+
 
 // 役割ごとの max_tokens。docs/00_architecture.md §6 の設計に合わせる。
 // synth は日本語ほぼ1字≒1トークンで本文700字目安+機械可読ブロックが切れない余裕、
@@ -155,19 +133,96 @@ export function activeProfile(env: Record<string, unknown>): ModelProfile {
   return typeof openaiKey === "string" && openaiKey.length > 0 ? "luna" : "deepseek";
 }
 
-// 混雑(429)や障害(5xx)で主のプロバイダーが応答できないときの切り替え先。
-// もう一方の構成の同じ役割を使う(両社の「1分あたりの上限」を合わせて使える)。
-// 切り替え先のキーが無い、または MODEL_FALLBACK="off" なら null。
+// ---------------------------------------------------------------------------
+// 無料枠のプロバイダー(混雑時の切り替え先)。課金なし運用のため、有料の DeepSeek より先に使う。
+// - Groq: クレジットカード不要・無料(モデルごとに1分30回ほど・1日の上限あり)
+// - さくらのAI Engine: 月3,000リクエストまで無料(超えても自動課金されず、速度が絞られるだけ)
+// どちらも gpt-oss(推論モデル)。推論は low にし、推論分の出力予算を上乗せする。単価は0で記録する。
+// キーが無ければ使わない。上限が小さいので主には使わず、混雑・障害時の受け皿にする。
+// ---------------------------------------------------------------------------
+const FREE_BASE = {
+  provider: "openai-compat",
+  pricePerMTokIn: 0,
+  pricePerMTokOut: 0,
+  extraBody: { reasoning_effort: "low" },
+  maxTokensParam: "max_completion_tokens",
+  reasoningBudget: 1500,
+} as const;
+
+const GROQ_SMALL = { ...FREE_BASE, baseURL: "https://api.groq.com/openai/v1", model: "openai/gpt-oss-20b", keyEnv: "GROQ_API_KEY" } as const satisfies Omit<ModelConfig, "maxTokens">;
+const GROQ_LARGE = { ...GROQ_SMALL, model: "openai/gpt-oss-120b" } as const satisfies Omit<ModelConfig, "maxTokens">;
+const SAKURA = { ...FREE_BASE, baseURL: "https://api.ai.sakura.ad.jp/v1", model: "gpt-oss-120b", keyEnv: "SAKURA_API_KEY" } as const satisfies Omit<ModelConfig, "maxTokens">;
+
+export type BaselineModel = "luna" | "sol" | "pro" | "groq" | "sakura";
+
+export const BASELINE_MODELS: Record<BaselineModel, ModelConfig> = {
+  luna: {
+    ...LUNA,
+    extraBody: { reasoning_effort: "medium" },
+    maxTokens: 2000,
+    reasoningBudget: 8000,
+  },
+  sol: {
+    provider: "openai-compat",
+    baseURL: "https://api.openai.com/v1",
+    model: "gpt-6.1-sol",
+    keyEnv: "OPENAI_API_KEY",
+    pricePerMTokIn: 2,
+    pricePerMTokOut: 10,
+    pricePerMTokCachedIn: 0.1,
+    extraBody: { reasoning_effort: "medium" },
+    maxTokensParam: "max_completion_tokens",
+    maxTokens: 3000,
+    reasoningBudget: 8000,
+  },
+  // 評価の審査役(別の会社のモデル。OpenAI 同士の自己びいきを避ける)
+  pro: { ...PRO, maxTokens: 4000 },
+  // 無料の審査役(Groq の Meta Llama。OpenAI 系と違う会社のモデル)
+  groq: {
+    provider: "openai-compat",
+    baseURL: "https://api.groq.com/openai/v1",
+    model: "llama-3.3-70b-versatile",
+    keyEnv: "GROQ_API_KEY",
+    pricePerMTokIn: 0,
+    pricePerMTokOut: 0,
+    maxTokens: 3000,
+  },
+  // 無料の審査役(さくらのAI Engine。月3,000回まで無料)
+  sakura: { ...SAKURA, maxTokens: 3000, reasoningBudget: 3000 },
+};
+// 役割ごとの無料枠の構成。統合脳は大きいモデル、ほかの狭い作業は小さく速いモデル
+function freeTierFor(role: ModelRole): ModelConfig[] {
+  const maxTokens = MAX_TOKENS[role];
+  return [{ ...(role === "synth" ? GROQ_LARGE : GROQ_SMALL), maxTokens }, { ...SAKURA, maxTokens }];
+}
+
+const hasKey = (env: Record<string, unknown>, cfg: ModelConfig) => {
+  const key = env[cfg.keyEnv];
+  return typeof key === "string" && key.length > 0;
+};
+
+// 混雑(429)や障害(5xx)で主のプロバイダーが応答できないときの切り替え先(試す順)。
+// 1. 無料枠(Groq → さくら)  2. もう一方の構成の同じ役割(DeepSeek / Luna)
+// キーが無いものは除く。MODEL_FALLBACK="off" なら空、FREE_FALLBACK="off" なら無料枠を使わない。
+export function fallbackChain(
+  role: ModelRole,
+  env: Record<string, unknown>,
+  primary: ModelConfig,
+): ModelConfig[] {
+  if (env.MODEL_FALLBACK === "off") return [];
+  const free = env.FREE_FALLBACK === "off" ? [] : freeTierFor(role).filter((c) => hasKey(env, c) && c.model !== primary.model);
+  const other: ModelProfile = primary.keyEnv === PROFILES.luna[role].keyEnv ? "deepseek" : "luna";
+  const paid = PROFILES[other][role];
+  return [...free, ...(hasKey(env, paid) && paid.model !== primary.model ? [paid] : [])];
+}
+
+// 互換: 最初の切り替え先
 export function fallbackFor(
   role: ModelRole,
   env: Record<string, unknown>,
   primary: ModelConfig,
 ): ModelConfig | null {
-  if (env.MODEL_FALLBACK === "off") return null;
-  const other: ModelProfile = primary.keyEnv === PROFILES.luna[role].keyEnv ? "deepseek" : "luna";
-  const cfg = PROFILES[other][role];
-  const key = env[cfg.keyEnv];
-  return typeof key === "string" && key.length > 0 ? cfg : null;
+  return fallbackChain(role, env, primary)[0] ?? null;
 }
 
 // 統合脳(synth)だけ推論をオンにする運用スイッチ(luna 構成のみ)。

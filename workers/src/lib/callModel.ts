@@ -10,7 +10,7 @@
 // ============================================================================
 
 import {
-  fallbackFor,
+  fallbackChain,
   modelFor,
   estimateCost,
   type ModelConfig,
@@ -23,6 +23,7 @@ import type {
   Env,
   ModelCallResult,
 } from "../types.js";
+import { coolDown, liveCandidates } from "./providerHealth.js";
 
 export interface CallModelOpts {
   env: Env;
@@ -47,18 +48,33 @@ export async function callModel(
   opts: CallModelOpts,
 ): Promise<ModelCallResult> {
   const primary = opts.modelOverride ?? modelFor(role, opts.env);
-  const fallback = fallbackFor(role, opts.env, primary);
-  try {
-    // 切り替え先があるときは、混雑(429)での同じ相手への再試行を1回までにする
-    // (1リクエストの外部呼び出し回数の上限を使い切らないため。ただし1回は待つ: 切り替え先の
-    // DeepSeek は統合脳の単価が高く、すぐ切り替えると混雑時の原価が数倍になった)
-    return await callWith(role, primary, messages, opts, false, fallback !== null);
-  } catch (err) {
-    // 混雑(429)・障害(5xx)・接続失敗なら、もう一方のプロバイダーで1回だけ試す
-    const fb = shouldFallback(err) ? fallback : null;
-    if (!fb) throw err;
-    return await callWith(role, fb, messages, opts, true, false);
+  // 試す順: 主 → 無料枠(Groq・さくら)→ もう一方の有料構成。最近混雑した相手は飛ばす
+  const all = [primary, ...fallbackChain(role, opts.env, primary)];
+  const candidates = liveCandidates(all);
+  let lastErr: unknown;
+  for (let i = 0; i < candidates.length; i++) {
+    const cfg = candidates[i];
+    const hasNext = i < candidates.length - 1;
+    try {
+      // 次の候補があるときは、混雑(429)での同じ相手への再試行を1回までにする(主のみ)。
+      // 切り替え先(無料枠)は再試行せず次へ。外部呼び出し回数の上限を使い切らないため
+      return await callWith(role, cfg, messages, opts, cfg !== primary, hasNext, cfg !== primary && hasNext);
+    } catch (err) {
+      if (isAbortError(err)) throw err;
+      lastErr = err;
+      if (shouldCoolDown(err)) coolDown(cfg, err instanceof ModelHttpError ? err.retryAfterMs : 0);
+      // 主の入力不備(4xx)は切り替えても直らないので投げる。切り替え先の失敗は形式違いもあり得るので次へ
+      if (cfg === primary && !shouldFallback(err)) throw err;
+    }
   }
+  throw lastErr;
+}
+
+// しばらく休ませるべきエラーか(混雑・障害・接続失敗)
+export function shouldCoolDown(err: unknown): boolean {
+  if (isAbortError(err)) return false;
+  if (err instanceof ModelHttpError) return err.status === 429 || err.status >= 500;
+  return true;
 }
 
 // 主のプロバイダーを諦めてよいエラーか(中断や 4xx の入力不備では切り替えない)
@@ -73,6 +89,8 @@ export class ModelHttpError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    // プロバイダーが示した待ち時間(Retry-After)
+    readonly retryAfterMs = 0,
   ) {
     super(message);
     this.name = "ModelHttpError";
@@ -86,6 +104,7 @@ async function callWith(
   opts: CallModelOpts,
   fellBack: boolean,
   noRetryOn429: boolean,
+  noRetry = false,
 ): Promise<ModelCallResult> {
   // 推論の予算は上書きされた上限にも上乗せする(推論で本文が空にならないように)
   const maxTokens = (opts.maxTokens ?? cfg.maxTokens) + (cfg.reasoningBudget ?? 0);
@@ -100,6 +119,7 @@ async function callWith(
     opts.signal,
     opts.retryBaseMs ?? DEFAULT_RETRY_BASE_MS,
     noRetryOn429,
+    noRetry,
   );
   const bodyText = await res.text();
   const ms = nowMs() - start;
@@ -108,6 +128,7 @@ async function callWith(
     throw new ModelHttpError(
       `callModel(${role}) HTTP ${res.status}: ${bodyText.slice(0, 300)}`,
       res.status,
+      retryAfterMs(res),
     );
   }
 
@@ -388,14 +409,16 @@ async function fetchWithRetry(
   signal: AbortSignal | undefined,
   retryBaseMs: number,
   noRetryOn429 = false,
+  noRetry = false,
 ): Promise<Response> {
   let lastErr: unknown;
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+  const maxRetries = noRetry ? 0 : MAX_RETRIES;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
     throwIfAborted(signal);
     try {
       const res = await fetch(url, { ...init, signal });
       if (res.status === 429 && noRetryOn429 && attempt >= 1) return res;
-      if (isRetryable(res.status) && attempt < MAX_RETRIES) {
+      if (isRetryable(res.status) && attempt < maxRetries) {
         // 混雑時はプロバイダーが示す待ち時間(Retry-After)を尊重する(上限 2 秒。長ければ切り替えに任せる)
         await backoff(retryBaseMs, attempt, signal, retryAfterMs(res));
         continue;
@@ -405,7 +428,7 @@ async function fetchWithRetry(
       // Abort はリトライせず即座に投げる
       if (isAbortError(err)) throw err;
       lastErr = err;
-      if (attempt < MAX_RETRIES) {
+      if (attempt < maxRetries) {
         await backoff(retryBaseMs, attempt, signal);
         continue;
       }
@@ -420,7 +443,7 @@ function isRetryable(status: number): boolean {
 
 const MAX_RETRY_AFTER_MS = 2000;
 
-function retryAfterMs(res: Response): number {
+export function retryAfterMs(res: Response): number {
   const ms = Number(res.headers.get("retry-after-ms"));
   if (Number.isFinite(ms) && ms > 0) return Math.min(ms, MAX_RETRY_AFTER_MS);
   const sec = Number(res.headers.get("retry-after"));
@@ -476,7 +499,7 @@ function abortError(): Error {
   return e;
 }
 
-function isAbortError(err: unknown): boolean {
+export function isAbortError(err: unknown): boolean {
   return err instanceof Error && err.name === "AbortError";
 }
 
