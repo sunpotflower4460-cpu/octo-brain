@@ -53,6 +53,10 @@ LUNA_SYNTH_REASONING = "low"
 # (docs/01_depth_design.md §5.5)。"on" 以外なら従来どおり。
 # 2026-10-01 盲検評価(18問)で単体チャットを初めて上回ったため既定でオン
 WORLDS = "on"
+# LIGHT_STYLE: ライトの腕の選び方。"compact8"(8腕すべてを簡潔版で)/ "planner"(問われている2軸の4腕)/ "domain"(従来: ドメインで2軸)
+# 2026-10-01 評価(26問・Sol 審査と Luna 審査)で compact8 が従来のライト・ディープの両方を上回ったため既定に
+#   原価 約0.36円(従来ライト 0.30円 / ディープ 0.44円 / 単体 Sol 1.09円)
+LIGHT_STYLE = "compact8"
 # RESEARCH: 判断に関わる事実を e-Gov 法令API・Wikipedia(無料)と Tavily(TAVILY_API_KEY があるときだけ)で
 # 確かめて統合脳に渡す(docs/01_depth_design.md §5.6)。"off" で停止。WORLDS がオンのときに働く
 

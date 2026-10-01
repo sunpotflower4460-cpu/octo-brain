@@ -271,7 +271,8 @@ interface GuardResult {
 
 // 予算逼迫時(economy)の env: 統合脳の推論を切って原価を下げる
 function economyEnv(env: Env): Env {
-  return { ...env, LUNA_SYNTH_REASONING: "none" };
+  // 予算逼迫時は、統合脳の推論を切り、ライトも従来の4腕(簡潔版8腕より約0.06円安い)にする
+  return { ...env, LUNA_SYNTH_REASONING: "none", LIGHT_STYLE: "domain" };
 }
 
 async function guardRequest(

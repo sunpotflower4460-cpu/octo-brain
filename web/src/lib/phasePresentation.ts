@@ -77,6 +77,6 @@ export function presentPhase(phase: UiPhase): PhasePresentation {
 // plan のユーザー向け表示 (§9.2)。
 export function planLabel(plan: "light" | "deep"): { title: string; desc: string } {
   return plan === "light"
-    ? { title: "ライト", desc: "4つのレンズで素早く整理" }
-    : { title: "ディープ", desc: "8つすべてで深く考える(2回分)" };
+    ? { title: "ライト", desc: "8つの視点で素早く整理" }
+    : { title: "ディープ", desc: "8つの視点をじっくり掘る(2回分)" };
 }
