@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { callModel } from "../src/lib/callModel.js";
 import { callModelStream } from "../src/lib/callModelStream.js";
 import { CostCollector } from "../src/lib/costlog.js";
+import { resetCooldowns } from "../src/lib/providerHealth.js";
 import type { ChatMessage, Env } from "../src/types.js";
 
 // 1分あたりの上限(429)・障害(5xx)で主のプロバイダーが応答できないとき、
@@ -28,7 +29,10 @@ function route(handler: (url: string) => Response) {
   return fn;
 }
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  resetCooldowns();
+});
 
 describe("プロバイダー切り替え(非ストリーム)", () => {
   it("OpenAI が 429 を返し続けたら DeepSeek で応答し、原価ログに fallback を残す", async () => {
@@ -91,5 +95,57 @@ describe("プロバイダー切り替え(ストリーム)", () => {
     for await (const d of callModelStream("synth", messages, { env: both, collector: col })) text += d;
     expect(text).toBe("続き");
     expect(col.calls[0]).toMatchObject({ model: "deepseek-v4-pro", fallback: true });
+  });
+});
+
+describe("無料枠(Groq・さくら)を有料の切り替え先より先に使う", () => {
+  const all = { ...both, GROQ_API_KEY: "g", SAKURA_API_KEY: "s" } as Env;
+  const busy = () => new Response("rate", { status: 429 });
+
+  it("試す順は 無料枠(Groq → さくら)→ もう一方の有料構成。キーが無いものは除く", async () => {
+    const { fallbackChain, modelFor } = await import("../src/config/models.js");
+    const primary = modelFor("node", all);
+    expect(fallbackChain("node", all, primary).map((c) => c.model)).toEqual(["openai/gpt-oss-20b", "gpt-oss-120b", "deepseek-flash"]);
+    // 統合脳は大きいモデル
+    expect(fallbackChain("synth", all, modelFor("synth", all))[0].model).toBe("openai/gpt-oss-120b");
+    expect(fallbackChain("node", both, primary).map((c) => c.model)).toEqual(["deepseek-flash"]);
+    expect(fallbackChain("node", { ...all, FREE_FALLBACK: "off" } as Env, primary).map((c) => c.model)).toEqual(["deepseek-flash"]);
+    expect(fallbackChain("node", { ...all, MODEL_FALLBACK: "off" } as Env, primary)).toEqual([]);
+  });
+
+  it("OpenAI が混雑なら Groq で答え、原価0・切り替えとして記録する", async () => {
+    const fetch = route((url) => (url.includes("openai.com") ? busy() : url.includes("groq") ? ok("groq の回答") : ok("x")));
+    const col = new CostCollector();
+    const r = await callModel("node", messages, { env: all, retryBaseMs: 0, collector: col });
+    expect(r.text).toBe("groq の回答");
+    expect(col.calls[0]).toMatchObject({ model: "openai/gpt-oss-20b", fallback: true, estCost: 0 });
+    expect(fetch.mock.calls.some((c) => String(c[0]).includes("deepseek"))).toBe(false);
+  });
+
+  it("切り替え先の失敗は形式の違い(400)でも次の候補へ進み、再試行はしない", async () => {
+    const fetch = route((url) =>
+      url.includes("openai.com") ? busy() : url.includes("groq") ? new Response("bad", { status: 400 }) : url.includes("sakura") ? busy() : ok("deepseek の回答"));
+    const r = await callModel("node", messages, { env: all, retryBaseMs: 0 });
+    expect(r.text).toBe("deepseek の回答");
+    expect(fetch.mock.calls.filter((c) => String(c[0]).includes("groq"))).toHaveLength(1);
+    expect(fetch.mock.calls.filter((c) => String(c[0]).includes("sakura"))).toHaveLength(1);
+  });
+
+  it("混雑した相手はしばらく休ませ、次の呼び出しでは最初から飛ばす", async () => {
+    const fetch = route((url) => (url.includes("openai.com") ? busy() : ok("groq")));
+    await callModel("node", messages, { env: all, retryBaseMs: 0 });
+    const before = fetch.mock.calls.filter((c) => String(c[0]).includes("openai.com")).length;
+    await callModel("node", messages, { env: all, retryBaseMs: 0 });
+    expect(fetch.mock.calls.filter((c) => String(c[0]).includes("openai.com")).length).toBe(before);
+  });
+
+  it("ストリームも開始時の混雑で Groq に開き直す", async () => {
+    const sse = "data: " + JSON.stringify({ choices: [{ delta: { content: "groqの本文" } }] }) + "\n\ndata: [DONE]\n\n";
+    route((url) => (url.includes("openai.com") ? busy() : new Response(sse, { status: 200, headers: { "content-type": "text/event-stream" } })));
+    const col = new CostCollector();
+    let text = "";
+    for await (const t of callModelStream("synth", messages, { env: all, retryBaseMs: 0, collector: col })) text += t;
+    expect(text).toBe("groqの本文");
+    expect(col.calls[0]).toMatchObject({ model: "openai/gpt-oss-120b", fallback: true });
   });
 });

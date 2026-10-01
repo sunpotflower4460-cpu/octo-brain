@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { callModel } from "./lib/callModel.js";
 import type { ModelRole } from "./config/models.js";
-import { BASELINE_MODELS, MODEL_ROLES, activeProfile, modelFor } from "./config/models.js";
+import { BASELINE_MODELS, MODEL_ROLES, activeProfile, modelFor, type BaselineModel } from "./config/models.js";
 import { CostCollector } from "./lib/costlog.js";
 import { runAnalyze } from "./lib/analyze.js";
 import { runAnalyzeStream } from "./lib/analyzeStream.js";
@@ -119,13 +119,14 @@ app.get("/api/health", (c) => {
 });
 
 // 開発用: 比較評価の「普通のチャットボット」。ENVIRONMENT=development のときだけ有効。
-// body: { model: "luna" | "sol" | "pro", system?: string, input: string }。原価は callModel を通る(絶対ルール5)。
+// body: { model: "luna" | "sol" | "pro" | "groq" | "sakura", system?: string, input: string }。原価は callModel を通る(絶対ルール5)。
 app.post("/api/dev/baseline", async (c) => {
   if (c.env.ENVIRONMENT !== "development") {
     return c.json({ error: "not_available_in_production" }, 404);
   }
   const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
-  const model = b.model === "sol" || b.model === "pro" ? b.model : "luna";
+  const model: BaselineModel =
+    typeof b.model === "string" && b.model in BASELINE_MODELS ? (b.model as BaselineModel) : "luna";
   const input = typeof b.input === "string" ? b.input : "";
   const system =
     typeof b.system === "string" && b.system.length > 0
