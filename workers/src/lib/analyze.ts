@@ -9,7 +9,7 @@ import { verify } from "./verify.js";
 import { polishAnswer } from "./polish.js";
 import { runMapper } from "./mapper.js";
 import { pickWorlds, worldsEnabled } from "./worlds.js";
-import { citedSources, researchEnabled, runResearch, type ResearchSource } from "./research.js";
+import { citedSources, researchEnabled, runResearch, type ResearchResult, type ResearchSource } from "./research.js";
 import { answerLanguage } from "./language.js";
 import { shouldOfferSupport, detectCare, type CareKind } from "./care.js";
 import { CostCollector, incrementQuotaState, logCost, logFailedCost } from "./costlog.js";
@@ -59,6 +59,7 @@ export interface AnalyzeNodeView {
   world?: string;
   experience?: string;
   facts?: NodeResult["facts"];
+  move?: string;
 }
 
 export function toNodeView(n: NodeResult): AnalyzeNodeView {
@@ -70,6 +71,7 @@ export function toNodeView(n: NodeResult): AnalyzeNodeView {
     ...(n.world ? { world: n.world } : {}),
     ...(n.experience ? { experience: n.experience } : {}),
     ...(n.facts ? { facts: n.facts } : {}),
+    ...(n.move ? { move: n.move } : {}),
   };
 }
 
@@ -123,6 +125,8 @@ export interface AnalyzeMeta {
   // 利用状況(残り回数の表示用)。KV 失敗時は付かない
   quota?: QuotaStatus;
   boundary?: BoundaryKind | null; // 正直な但し書きを添えた領域(計算/最新情報)。null は無し
+  // 探求のしかた(explore: 違う世界から探求 / check: 法律・事実を全腕で照合)。世界の選定をしたときだけ
+  inquiry?: "explore" | "check";
   // 調べて確かめた資料(法令・百科事典・ウェブ)。アプリは回答の下に出典として出す
   sources?: { kind: ResearchSource["kind"]; title: string; url: string }[];
   warnings?: string[];
@@ -175,6 +179,8 @@ async function runAnalyzeInner(
   ]);
 
   const worlds = plan?.worlds ?? null;
+  // 照合モード(法律・事実の質問): 世界を立てず、資料を見ながら全腕が独立に確かめる
+  const check = plan?.mode === "check";
   // 調べもの(公的・公開の情報源)は腕の探求と並列に進め、統合の前に受け取る
   const researchPromise =
     plan?.research && researchEnabled(deps.env)
@@ -184,27 +190,32 @@ async function runAnalyzeInner(
   // ② プラン別レンズ並列 + クォーラム
   const lensIds = planLenses(req.plan, domain);
   const required = planQuorum(req.plan);
+  // 照合モードでは資料を腕にも見せるため、腕の前に受け取る(探求モードは腕と並列)
+  let research: ResearchResult | null = check ? await researchPromise : null;
   const run = await runNodes(lensIds, required, req.input, req.summary, {
     env: deps.env,
     collector,
     nodeTimeoutMs: deps.nodeTimeoutMs,
     signal: deps.signal,
     worlds,
+    check,
+    research: research?.sources,
   });
 
-  // 調べものを受け取る(失敗は回答を止めず warnings で可視化)
-  const research = await researchPromise;
+  // 調べものを受け取る(失敗は回答を止めず warnings で可視化)。照合モードでは腕の前に受け取り済み
+  if (!check) research = await researchPromise;
   if (research?.failures.length) warnings.push(`research_failed: ${research.failures.join(",")}`);
 
   // ③ 掘る統合 or フォールバック
   // 視点の地図は統合脳と並列に作る(待ち時間を増やさない)。寄り添いモードでは作らない
   // 世界の選定が「迷いや判断を含まない相談」と判断した(空配列)ときも地図は作らない
-  const mapPromise = detectCare(req.input) || (worlds !== null && worlds.length === 0)
+  const mapPromise = detectCare(req.input) || (worlds !== null && worlds.length === 0 && !check)
     ? Promise.resolve(null)
     : runMapper(req.input, run.nodes, {
         env: deps.env,
         collector,
         signal: deps.signal,
+        check,
         onFailure: (reason) => warnings.push(`map_failed: ${reason}`),
       });
   const synth = run.fallback
@@ -212,13 +223,13 @@ async function runAnalyzeInner(
         env: deps.env,
         collector,
         signal: deps.signal,
-        careTurns: req.careTurns, prevAnswer: req.prevAnswer, research: research?.sources,
+        careTurns: req.careTurns, prevAnswer: req.prevAnswer, research: research?.sources, check,
       })
     : await synthesize(req.input, req.summary, run.nodes, {
         env: deps.env,
         collector,
         signal: deps.signal,
-        careTurns: req.careTurns, prevAnswer: req.prevAnswer, research: research?.sources,
+        careTurns: req.careTurns, prevAnswer: req.prevAnswer, research: research?.sources, check,
       });
 
   // ④ 検証(表面のみ最小修正)
@@ -289,6 +300,7 @@ async function runAnalyzeInner(
     quotaUsed,
     ...(quota ? { quota } : {}),
     boundary,
+    ...(plan ? { inquiry: plan.mode } : {}),
     ...sourcesMeta(polished.text, research?.sources),
   };
   if (warnings.length > 0) meta.warnings = warnings;

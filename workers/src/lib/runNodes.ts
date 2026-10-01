@@ -3,7 +3,8 @@
 // JSONパース失敗は parse_error として棄却(リトライしない)。クォーラム判定を行う。
 
 import { callModel } from "./callModel.js";
-import { nodeDef, nodeSystemPrompt, nodeWorldSystemPrompt, type NodeId } from "../config/nodes.js";
+import { nodeCheckSystemPrompt, nodeDef, nodeSystemPrompt, nodeWorldSystemPrompt, type NodeId } from "../config/nodes.js";
+import type { ResearchSource } from "./research.js";
 import { pickNodeModel } from "../config/models.js";
 import type {
   CostSink,
@@ -20,6 +21,7 @@ const MAX_OPINIONS = 3;
 const MAX_FIELD_LEN = 60;
 const EXPERIENCE_MAX_LEN = 120;
 const MAX_FACTS = 2;
+const MAX_CHECK_FACTS = 3;
 
 export interface RunNodesOpts {
   env: Env;
@@ -31,6 +33,10 @@ export interface RunNodesOpts {
   onNodeComplete?: (node: NodeResult) => void;
   // 腕ごとの世界(lensIds と同じ順)。無い腕は従来どおり世界なしで探求する
   worlds?: World[] | null;
+  // 照合モード(法律・事実の質問)。世界は立てず、全腕が独立に事実を確かめる
+  check?: boolean;
+  // 照合モードで腕にも見せる資料(調べて確かめたもの)
+  research?: ResearchSource[];
 }
 
 export interface RunNodesResult {
@@ -50,11 +56,12 @@ export async function runNodes(
   opts: RunNodesOpts,
 ): Promise<RunNodesResult> {
   const timeoutMs = opts.nodeTimeoutMs ?? NODE_TIMEOUT_MS;
-  const userText = buildNodeUserText(input, summary);
+  const base = buildNodeUserText(input, summary);
+  const userText = opts.check ? withMaterials(base, opts.research ?? []) : base;
 
   const settled = await Promise.allSettled(
     lensIds.map((id, i) => {
-      const world = opts.worlds?.[i] ?? null;
+      const world = opts.check ? null : (opts.worlds?.[i] ?? null);
       return runOne(id, i, world ? withWorld(userText, world) : userText, world, timeoutMs, opts);
     }),
   );
@@ -94,7 +101,10 @@ async function runOne(
     const res = await callModel(
       "node",
       [
-        { role: "system", content: world ? nodeWorldSystemPrompt(def) : nodeSystemPrompt(def) },
+        {
+          role: "system",
+          content: opts.check ? nodeCheckSystemPrompt(def) : world ? nodeWorldSystemPrompt(def) : nodeSystemPrompt(def),
+        },
         { role: "user", content: userText },
       ],
       {
@@ -104,7 +114,7 @@ async function runOne(
         modelOverride: pickNodeModel(index, opts.env),
       },
     );
-    const parsed = parseNodeResponse(id, res.text, world);
+    const parsed = parseNodeResponse(id, res.text, world, opts.check === true);
     opts.onNodeComplete?.(parsed);
     return parsed;
   } catch {
@@ -134,9 +144,16 @@ export function withWorld(userText: string, world: World): string {
   return `[あなたの世界]\n${world.name}${daily}\n\n${userText}`;
 }
 
+// 照合モードの腕に渡す user メッセージ(調べた資料を添える。腕どうしで同じ資料を見る)
+export function withMaterials(userText: string, sources: ResearchSource[]): string {
+  if (sources.length === 0) return userText;
+  const lines = sources.map((s, i) => `[S${i + 1}] ${s.title}: ${s.text}`);
+  return `${userText}\n\n[調べて確かめた資料]\n${lines.join("\n")}`;
+}
+
 // 生パース → 失敗なら {...} 抽出を1回 → 失敗なら parse_error (§2)。
-// 世界つきなら experience / facts も取り出す(欠けても opinions があれば使う)。
-export function parseNodeResponse(id: NodeId, raw: string, world: World | null = null): NodeResult {
+// 世界つきなら experience / facts / move、照合モードなら facts / move も取り出す(欠けても opinions があれば使う)。
+export function parseNodeResponse(id: NodeId, raw: string, world: World | null = null, check = false): NodeResult {
   const obj = tryParseObject(raw);
   const w = world ? { world: world.name } : {};
   if (obj === null) {
@@ -149,16 +166,20 @@ export function parseNodeResponse(id: NodeId, raw: string, world: World | null =
     flag: normalizeFlag(obj.flag),
     ...w,
   };
-  if (world) {
-    const experience = asString(obj.experience).trim().slice(0, EXPERIENCE_MAX_LEN);
-    if (experience) result.experience = experience;
-    const facts = normalizeFacts(obj.facts);
+  if (world || check) {
+    if (world) {
+      const experience = asString(obj.experience).trim().slice(0, EXPERIENCE_MAX_LEN);
+      if (experience) result.experience = experience;
+    }
+    const facts = normalizeFacts(obj.facts, check ? MAX_CHECK_FACTS : MAX_FACTS);
     if (facts.length > 0) result.facts = facts;
+    const move = truncate(asString(obj.move));
+    if (move) result.move = move;
   }
   return result;
 }
 
-function normalizeFacts(v: unknown): Fact[] {
+function normalizeFacts(v: unknown, max: number): Fact[] {
   if (!Array.isArray(v)) return [];
   const out: Fact[] = [];
   for (const el of v) {
@@ -167,7 +188,7 @@ function normalizeFacts(v: unknown): Fact[] {
     const text = truncate(asString(o.text));
     if (text.length === 0) continue;
     out.push({ text, sure: clampWeight(o.sure) });
-    if (out.length >= MAX_FACTS) break;
+    if (out.length >= max) break;
   }
   return out;
 }

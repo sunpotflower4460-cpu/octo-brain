@@ -15,7 +15,7 @@ import { QUOTA_UNITS, quotaStatus, type QuotaStatus } from "./guard.js";
 import { detectBoundary, boundaryPrefix, withBoundaryPrefix } from "./boundary.js";
 import { planLenses, planQuorum } from "../config/nodes.js";
 import { pickWorlds, type WorldsPlan } from "./worlds.js";
-import { researchEnabled, runResearch } from "./research.js";
+import { researchEnabled, runResearch, type ResearchResult } from "./research.js";
 import { answerLanguage } from "./language.js";
 import { boundaryAfterResearch, sourcesMeta, planWorldCount, shouldPickWorlds, toNodeView, type AnalyzeInput, type AnalyzeDeps, type AnalyzeMeta } from "./analyze.js";
 import type { Domain } from "../types.js";
@@ -67,6 +67,8 @@ async function runAnalyzeStreamInner(
   ]);
 
   const worlds = plan?.worlds ?? null;
+  // 照合モード(法律・事実の質問): 世界を立てず、資料を見ながら全腕が独立に確かめる
+  const check = plan?.mode === "check";
   // 調べもの(公的・公開の情報源)は腕の探求と並列に進め、統合の前に受け取る
   const researchPromise =
     plan?.research && researchEnabled(deps.env)
@@ -80,6 +82,8 @@ async function runAnalyzeStreamInner(
   // 世界つきなら、腕ごとの世界の名前も同送する(探求中から「どの世界から見ているか」を見せる)
   const worldNames = worlds && worlds.length > 0 ? lensIds.map((_, i) => worlds[i]?.name ?? null) : undefined;
   emit("phase", { phase: "nodes" satisfies SSEPhase, nodeIds: lensIds, ...(worldNames ? { worlds: worldNames } : {}) });
+  // 照合モードでは資料を腕にも見せるため、腕の前に受け取る(探求モードは腕と並列)
+  let research: ResearchResult | null = check ? await researchPromise : null;
   const run = await runNodes(lensIds, required, req.input, req.summary, {
     env: deps.env,
     collector,
@@ -87,10 +91,12 @@ async function runAnalyzeStreamInner(
     signal: deps.signal,
     onNodeComplete: (n) => emit("node", toNodeView(n)),
     worlds,
+    check,
+    research: research?.sources,
   });
 
-  // 調べものを受け取る(失敗は回答を止めず warnings で可視化)
-  const research = await researchPromise;
+  // 調べものを受け取る(失敗は回答を止めず warnings で可視化)。照合モードでは腕の前に受け取り済み
+  if (!check) research = await researchPromise;
   if (research?.failures.length) warnings.push(`research_failed: ${research.failures.join(",")}`);
 
   // ③ 掘る統合(token 逐次) or フォールバック
@@ -106,26 +112,27 @@ async function runAnalyzeStreamInner(
   if (boundary) emit("token", { t: `${boundaryPrefix(boundary)}\n\n` });
   // 視点の地図は統合脳と並列に作る(待ち時間を増やさない)。寄り添いモードでは作らない
   // 世界の選定が「迷いや判断を含まない相談」と判断した(空配列)ときも地図は作らない
-  const mapPromise = detectCare(req.input) || (worlds !== null && worlds.length === 0)
+  const mapPromise = detectCare(req.input) || (worlds !== null && worlds.length === 0 && !check)
     ? Promise.resolve(null)
     : runMapper(req.input, run.nodes, {
         env: deps.env,
         collector,
         signal: deps.signal,
+        check,
         onFailure: (reason) => warnings.push(`map_failed: ${reason}`),
       });
   const synth = run.fallback
     ? await synthesizeFallbackStream(
         req.input,
         req.summary,
-        { env: deps.env, collector, signal: deps.signal, careTurns: req.careTurns, prevAnswer: req.prevAnswer, research: research?.sources },
+        { env: deps.env, collector, signal: deps.signal, careTurns: req.careTurns, prevAnswer: req.prevAnswer, research: research?.sources, check },
         onToken,
       )
     : await synthesizeStream(
         req.input,
         req.summary,
         run.nodes,
-        { env: deps.env, collector, signal: deps.signal, careTurns: req.careTurns, prevAnswer: req.prevAnswer, research: research?.sources },
+        { env: deps.env, collector, signal: deps.signal, careTurns: req.careTurns, prevAnswer: req.prevAnswer, research: research?.sources, check },
         onToken,
       );
 
@@ -197,6 +204,7 @@ async function runAnalyzeStreamInner(
     quotaUsed,
     ...(quota ? { quota } : {}),
     boundary,
+    ...(plan ? { inquiry: plan.mode } : {}),
     ...sourcesMeta(polished.text, research?.sources),
   };
   if (warnings.length > 0) meta.warnings = warnings;

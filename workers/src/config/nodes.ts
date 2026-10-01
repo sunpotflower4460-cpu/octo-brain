@@ -137,10 +137,25 @@ export function nodeSystemPrompt(def: Lens): string {
 const WORLD_NODE_RULES = `この相談を、[あなたの世界] に生きる人の目で探求する。
 - experience: その世界に独自の知恵・慣習・判断基準のうち、この相談に通じるものを、具体的な場面とともに書き、相談者の状況に置き換える(100字以内)。相談者の業界の人でも言える一般論(「年齢より経験が大事」など)は書かない。架空の個人の体験談(「私は〜した」)は作らず、「〜の世界では」のように、その世界でよくあることとして書く
 - facts: この相談の判断に直接関わる実際の情報(制度・相場・統計・よく知られた傾向など、相談者が調べれば確かめられるもの)を最大2件(各60字以内)。あなたのタスクの観点に関わるものを選ぶ。「人による」「状況で変わる」のような中身のない一般論は書かない。sure は確からしさ(0〜1)。うろ覚えの数字は書かないか、sure を低くする
+- move: その世界の知恵を、この相談者が今週できる具体的な一手に置き換える(60字以内)。数字・期限・相手への言い方のどれかを必ず含める(例:「開業前に、月の売上が○万円を3か月下回ったら撤退と紙に書いて決める」)
 - opinions: タスクの観点から相談者への意見を出す。少なくとも1つは、その世界の知恵を相談者の状況に置き換えた意見にする`;
 
-const WORLD_NODE_OUTPUT_FORMAT = `出力JSON形式: {"experience":"100字以内","facts":[{"text":"60字以内","sure":0.0〜1.0}],"opinions":[{"claim":"60字以内","weight":0.0〜1.0,"why":"60字以内"}],"flag":null | "insufficient_input" | "off_topic"}`;
+const WORLD_NODE_OUTPUT_FORMAT = `出力JSON形式: {"experience":"100字以内","move":"60字以内","facts":[{"text":"60字以内","sure":0.0〜1.0}],"opinions":[{"claim":"60字以内","weight":0.0〜1.0,"why":"60字以内"}],"flag":null | "insufficient_input" | "off_topic"}`;
 
 export function nodeWorldSystemPrompt(def: Lens): string {
   return `${COMMON_NODE_SYSTEM}\n\n${WORLD_NODE_RULES}\n\nタスク: ${def.verb}\n\n${WORLD_NODE_OUTPUT_FORMAT}`;
+}
+
+// 照合モード: 答えが法律・制度・手続き・事実で決まる質問。違う意見ではなく、独立した確かめを集める
+// (8人で別々にダブルチェックするイメージ)。各腕は自分のタスクの観点から、答えを左右する事実を確かめる。
+// [調べて確かめた資料] があれば、それに基づかせる。
+const CHECK_NODE_RULES = `この質問は、答えが法律・制度・手続き・事実で決まる。あなたは独立した確認役として、タスクの観点から答えを確かめる。
+- facts: 答えを左右する事実(結論・成立の条件・例外・期限・金額・手続き)を最大3件(各60字以内)。[調べて確かめた資料] があればそれに基づき、資料にないことは sure を低くする。sure は確からしさ(0〜1)。うろ覚えの数字・条番号は書かない。資料そのものへの論評(「資料には定義しかない」など)は書かない
+- move: 相談者が次に取るべき具体的な手順を1つ(60字以内。確認先・書面・期限・言い方のどれかを含める)
+- opinions: タスクの観点から相談者への意見(見落としやすい条件、相手への伝え方、取り返しのつかない点など)`;
+
+const CHECK_NODE_OUTPUT_FORMAT = `出力JSON形式: {"facts":[{"text":"60字以内","sure":0.0〜1.0}],"move":"60字以内","opinions":[{"claim":"60字以内","weight":0.0〜1.0,"why":"60字以内"}],"flag":null | "insufficient_input" | "off_topic"}`;
+
+export function nodeCheckSystemPrompt(def: Lens): string {
+  return `${COMMON_NODE_SYSTEM}\n\n${CHECK_NODE_RULES}\n\nタスク: ${def.verb}\n\n${CHECK_NODE_OUTPUT_FORMAT}`;
 }

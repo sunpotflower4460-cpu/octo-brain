@@ -56,6 +56,7 @@ const SYNTH_PROCEDURE = `あなたはOctoBrainの中央脳。8本の腕 — 4つ
 - 腕のIDや「ノード3によると」のような機械的引用は禁止。自然な文章に溶かす
 - 「腕」「レンズ」「ノード」「報告」という内部の言葉は本文に書かない。触れるときは「いくつかの視点」「どの視点も」のように言う
 - 「次の一歩:」「問い:」のような見出しやラベルは付けず、地の文で書く
+- 重さのある相談(困っている・傷ついている・不当な扱い)では、冒頭の一文で相談者の状況を受け止めてから本題に入る(気持ちを決めつけず、書かれた事実に沿って)
 - 本文では「時の軸」「心の軸」などの軸の名前を出さない。緊張は「〜したい気持ちと〜が引っ張り合っている」のように普通の言葉で書く(軸の名前は機械可読ブロックにだけ書く)
 - 「いくつかの視点は」で毎回書き出さない。視点に触れるのは、それが答えを良くするときだけにし、言い回しも毎回変える
 - 雑談・あいさつ・お礼・単純な事実や相場の質問には、視点・緊張・選択の話を持ち出さず、人と話すように自然に短く答える(問いで終える必要もない)
@@ -91,6 +92,8 @@ export interface SynthOpts {
   prevAnswer?: string;
   // 公的・公開の情報源で確かめた資料(条文・百科事典・ウェブ)。腕の facts より優先させる
   research?: ResearchSource[];
+  // 照合モード(法律・事実の質問を全腕で独立に確かめた)
+  check?: boolean;
   collector?: CostSink;
   signal?: AbortSignal;
 }
@@ -119,6 +122,7 @@ export interface SynthReport {
   world?: string;
   experience?: string;
   facts?: Fact[];
+  move?: string;
 }
 
 // §5 除外ルール: flag付き / opinions空 / 非ok は除外。weight<0.4 は本文側で参考扱い。
@@ -134,6 +138,7 @@ export function buildReports(nodes: NodeResult[]): SynthReport[] {
       ...(n.world ? { world: n.world } : {}),
       ...(n.experience ? { experience: n.experience } : {}),
       ...(n.facts && n.facts.length > 0 ? { facts: n.facts } : {}),
+      ...(n.move ? { move: n.move } : {}),
     };
   });
 }
@@ -195,7 +200,7 @@ export function buildSynthUserText(
   input: string,
   summary: string,
   reports: SynthReport[],
-  ctx: { careTurns?: number; prevAnswer?: string; research?: ResearchSource[] } = {},
+  ctx: { careTurns?: number; prevAnswer?: string; research?: ResearchSource[]; check?: boolean } = {},
 ): string {
   const byAxis = new Map<string, SynthReport[]>();
   for (const r of reports) {
@@ -210,6 +215,7 @@ export function buildSynthUserText(
       ...(r.world ? { world: r.world } : {}),
       ...(r.experience ? { experience: r.experience } : {}),
       ...(r.facts ? { facts: r.facts } : {}),
+      ...(r.move ? { move: r.move } : {}),
       opinions: r.opinions,
     })),
   }));
@@ -226,7 +232,7 @@ export function buildSynthUserText(
   if (care) parts.push(care);
   const researchNote = researchBlock(ctx.research);
   if (researchNote) parts.push(researchNote);
-  const worldsNote = worldsDirective(reports);
+  const worldsNote = ctx.check ? checkDirective(reports) : worldsDirective(reports);
   if (worldsNote) parts.push(worldsNote);
   parts.push(
     `[軸ごとの報告(対角の2腕が張り合う)]\n${JSON.stringify(dialogues)}`,
@@ -256,13 +262,26 @@ export function worldsDirective(reports: SynthReport[]): string | null {
 1. 違う世界の経験に共通して流れている本質(場面は違っても同じ理)を掴み、答えの芯にする。表面の言葉の一致ではなく原理を探す
 2. 本質は、相談者の状況の言葉で述べる(「開業の前に、撤退する売上の基準と期限を決めておく」のように)。世界の名前や職業の例えは本文に出さない(どの世界から来たかは、画面の地図で別に示される)
 3. その本質を、次の一歩の具体的な行動に落とす。相談者の状況に固有の条件・数字・手順を削ってまで本質を語らない
-4. 世界の経験(感覚)と facts(情報)が食い違うところがあれば、どちらを重く見るかをあなたが判断する`;
+4. 世界の経験(感覚)と facts(情報)が食い違うところがあれば、どちらを重く見るかをあなたが判断する
+5. 次の一歩は、視点が出した move(その世界の知恵から来た具体的な一手)のうち、違う世界から来た効くものを2〜3選び、相談者の状況に合わせて数字・期限・言い方を残したまま示す(箇条書き可)`;
+}
+
+// 照合モード: 法律・事実の質問を、全腕が独立に確かめた。違う意見ではなく、確かめの一致・食い違いで答えを固める
+export function checkDirective(reports: SynthReport[]): string | null {
+  if (reports.length < 2) return null;
+  return `[照合]
+この質問は、答えが法律・制度・手続き・事実で決まる。各視点は独立した確認役として事実(facts)と次の手順(move)を挙げた。回答では次を行う:
+1. 複数の視点が独立に同じ事実を挙げていれば確かなものとして使う。1つの視点だけの事実や、視点どうしで食い違う事実は [調べて確かめた資料] で判定する。資料でも確かめられないものは断定せず「確認が必要」と書く
+2. 結論を最初に一文で言う(「〜です」「〜とは限りません」)。相談者が不当な扱いを受けている・困っている場合は、その一文の前後で状況を受け止める
+3. 結論を左右する条件・例外・期限・金額を、視点から漏れなく拾って箇条書きで示す(各視点が別々に見つけた条件を合わせることで、1人では漏れる条件を拾う)
+4. 視点の move から、確認先・書面・期限・言い方を含む具体的な手順を選んで示す。相手に伝える場面があれば、そのまま使える言い方を1つ添える
+5. 軸の緊張・本質・まだ言葉にしていない問いの話は不要(相談者が迷っている様子があるときだけ短く)。機械可読ブロックは出す`;
 }
 
 function buildFallbackUserText(
   input: string,
   summary: string,
-  ctx: { careTurns?: number; prevAnswer?: string; research?: ResearchSource[] } = {},
+  ctx: { careTurns?: number; prevAnswer?: string; research?: ResearchSource[]; check?: boolean } = {},
 ): string {
   const parts: string[] = [];
   if (summary.trim().length > 0) parts.push(`[会話要約]\n${summary.trim()}`);

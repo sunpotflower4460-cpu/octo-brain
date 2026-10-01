@@ -75,7 +75,7 @@ export default function Conversation({
 
             {/* 視点の地図(合意の強さ・割れたところ・ひとつだけの指摘)。寄り添いモードでは出さない */}
             {!msg.streaming && !msg.meta?.care && msg.meta?.map && (
-              <PerspectiveMapCard map={msg.meta.map} nodes={msg.nodes} />
+              <PerspectiveMapCard map={msg.meta.map} nodes={msg.nodes} check={msg.meta.inquiry === "check"} />
             )}
 
             {/* 寄り添いモード: まず回答で向き合い、声で話せる場所はその後ろに選択肢として置く。
