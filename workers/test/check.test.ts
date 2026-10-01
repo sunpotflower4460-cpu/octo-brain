@@ -8,7 +8,7 @@ import { runAnalyze } from "../src/lib/analyze.js";
 import { parseMode } from "../src/lib/worlds.js";
 import { parseNodeResponse, withMaterials } from "../src/lib/runNodes.js";
 import { mapperItems } from "../src/lib/mapper.js";
-import { buildReports, buildSynthUserText, checkDirective, worldsDirective } from "../src/lib/synthesize.js";
+import { buildReports, buildSynthUserText, checkDirective, researchBlock, worldsDirective } from "../src/lib/synthesize.js";
 import type { ModelRole } from "../src/config/models.js";
 import type { ChatMessage, Env, ModelCallResult, NodeResult } from "../src/types.js";
 
@@ -84,10 +84,19 @@ describe("照合の地図と統合", () => {
     expect(text).not.toContain("[世界をまたぐ探求]");
     expect(text).toContain('"move":"reasonの手順"');
     expect(checkDirective(buildReports(nodes.slice(0, 1)))).toBeNull();
+    // 評価で Sol に負けた点: 数字は表で、状況による分かれ目を示し、当てはまる方を確かめる
+    expect(text).toContain("表(Markdown)");
+    expect(text).toContain("分かれ目ごとに答え");
   });
   it("探求モードでは、違う世界の一手から行動を選ばせる", () => {
     const w = nodes.map((n, i) => ({ ...n, world: ["登山ガイド", "落語家", "救急医"][i], experience: "e" }));
     expect(worldsDirective(buildReports(w))).toContain("move");
+  });
+});
+
+describe("資料の扱い", () => {
+  it("資料を相談者が示したもののように書かせない", () => {
+    expect(researchBlock([{ kind: "wiki", title: "有給休暇(Wikipedia)", url: "u", text: "t" }])).toContain("「ご提示の」");
   });
 });
 
