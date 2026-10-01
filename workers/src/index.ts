@@ -434,7 +434,11 @@ app.post("/api/analyze/stream", async (c) => {
       }
       // 上流の生エラー(プロバイダーの応答本文等)はクライアントに返さずログにだけ残す
       console.error("analyze/stream pipeline_error", errDetail(err));
-      emit("error", { error: "pipeline_error" });
+      // 開発環境だけは原因を返す(評価・調査用。本番では返さない)
+      emit("error", {
+        error: "pipeline_error",
+        ...(c.env.ENVIRONMENT === "development" ? { detail: errDetail(err).slice(0, 300) } : {}),
+      });
     } finally {
       try {
         await writer.close();

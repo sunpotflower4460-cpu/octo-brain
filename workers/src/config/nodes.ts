@@ -142,9 +142,7 @@ const WORLD_NODE_RULES = `この相談を、[あなたの世界] に生きる人
 
 const WORLD_NODE_OUTPUT_FORMAT = `出力JSON形式: {"experience":"100字以内","move":"60字以内","facts":[{"text":"60字以内","sure":0.0〜1.0}],"opinions":[{"claim":"60字以内","weight":0.0〜1.0,"why":"60字以内"}],"flag":null | "insufficient_input" | "off_topic"}`;
 
-export function nodeWorldSystemPrompt(def: Lens): string {
-  return `${COMMON_NODE_SYSTEM}\n\n${WORLD_NODE_RULES}\n\nタスク: ${def.verb}\n\n${WORLD_NODE_OUTPUT_FORMAT}`;
-}
+
 
 // 照合モード: 答えが法律・制度・手続き・事実で決まる質問。違う意見ではなく、独立した確かめを集める
 // (8人で別々にダブルチェックするイメージ)。各腕は自分のタスクの観点から、答えを左右する事実を確かめる。
@@ -156,6 +154,32 @@ const CHECK_NODE_RULES = `この質問は、答えが法律・制度・手続き
 
 const CHECK_NODE_OUTPUT_FORMAT = `出力JSON形式: {"facts":[{"text":"60字以内","sure":0.0〜1.0}],"move":"60字以内","opinions":[{"claim":"60字以内","weight":0.0〜1.0,"why":"60字以内"}],"flag":null | "insufficient_input" | "off_topic"}`;
 
-export function nodeCheckSystemPrompt(def: Lens): string {
-  return `${COMMON_NODE_SYSTEM}\n\n${CHECK_NODE_RULES}\n\nタスク: ${def.verb}\n\n${CHECK_NODE_OUTPUT_FORMAT}`;
+// ---------------------------------------------------------------------------
+// 腕の共有システムプロンプト(世界つき・照合・従来)。
+// 全腕で同じ文にし、担当(動詞)は user メッセージの先頭に置く。こうすると同じリクエストの腕どうし・
+// 後続のリクエストで先頭が一致し、プロンプトキャッシュ(入力が約1/10の単価)が効く(1024トークン以上で有効)。
+// あわせて他の担当の一覧を見せ、観点が重ならないようにする(評価で「視点の重複が多い」と指摘されたため)。
+// ---------------------------------------------------------------------------
+export type NodeMode = "plain" | "world" | "check";
+
+const SHARED_NODE_HEAD = `あなたはOctoBrainの分析レンズです。user メッセージの [あなたの担当] に書かれたタスクだけを実行してください。
+- 出力は指定のJSONのみ。前置き・後書き・コードフェンス禁止
+- opinions は最大3件。各 claim・why は60字以内。weight は0〜1の確信度
+- 入力に書かれていることの言い換え・要約は意見にしない。入力から一歩踏み込んだ指摘だけを書く
+- 一般的な質問や、本人の事情が書かれていない相談でも、担当の観点で具体的な意見を必ず出す。情報が足りない部分は、よくある状況を仮定して意見を出し、その仮定を why に書く
+- flag の "insufficient_input" は、入力が短すぎる・意味をなさないなど、仮定を置いても意見が出せないときだけに使う`;
+
+const LENS_ROSTER = `同じ相談を、次の8つの担当が別々に見ている。担当ごとに観点が違う。自分の担当の観点に集中し、他の担当の観点は書かない(重ならないことで、全体として見落としが減る):
+${NODE_DEFS.map((d, i) => `${i + 1}. ${d.verb}`).join("\n")}`;
+
+export function nodeSharedSystem(mode: NodeMode): string {
+  const rules = mode === "world" ? WORLD_NODE_RULES : mode === "check" ? CHECK_NODE_RULES : "";
+  const format =
+    mode === "world" ? WORLD_NODE_OUTPUT_FORMAT : mode === "check" ? CHECK_NODE_OUTPUT_FORMAT : NODE_OUTPUT_FORMAT;
+  return [SHARED_NODE_HEAD, LENS_ROSTER, rules, format].join("\n\n");
+}
+
+// user メッセージの先頭に置く担当
+export function nodeTaskLine(def: Lens): string {
+  return `[あなたの担当]\n${def.verb}`;
 }

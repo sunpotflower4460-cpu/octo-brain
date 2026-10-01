@@ -19,6 +19,8 @@ export interface ModelCallResult {
   estimated: boolean;
   // 出力上限(max_tokens)で打ち切られた場合 true(finish_reason=length 等)
   truncated?: boolean;
+  // 入力のうちキャッシュから読まれたトークン数(取れたときだけ)
+  cachedTok?: number;
 }
 
 // 原価ログ1レコード (docs/00_architecture.md §8 の calls[] 要素)
@@ -27,6 +29,8 @@ export interface CostCallRecord {
   model: string;
   inTok: number;
   outTok: number;
+  // 入力のうちキャッシュから読まれた分(安い単価で計算済み)
+  cachedTok?: number;
   estCost: number;
   ms: number;
   estimated: boolean;

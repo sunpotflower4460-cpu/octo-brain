@@ -3,7 +3,7 @@
 // JSONパース失敗は parse_error として棄却(リトライしない)。クォーラム判定を行う。
 
 import { callModel } from "./callModel.js";
-import { nodeCheckSystemPrompt, nodeDef, nodeSystemPrompt, nodeWorldSystemPrompt, type NodeId } from "../config/nodes.js";
+import { nodeDef, nodeSharedSystem, nodeTaskLine, type NodeId } from "../config/nodes.js";
 import type { ResearchSource } from "./research.js";
 import { pickNodeModel } from "../config/models.js";
 import type {
@@ -103,9 +103,9 @@ async function runOne(
       [
         {
           role: "system",
-          content: opts.check ? nodeCheckSystemPrompt(def) : world ? nodeWorldSystemPrompt(def) : nodeSystemPrompt(def),
+          content: nodeSharedSystem(opts.check ? "check" : world ? "world" : "plain"),
         },
-        { role: "user", content: userText },
+        { role: "user", content: `${nodeTaskLine(def)}\n\n${userText}` },
       ],
       {
         env: opts.env,

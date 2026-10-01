@@ -18,10 +18,11 @@ const OK_JSON = JSON.stringify({
   flag: null,
 });
 
-// system プロンプトの verb からレンズidを逆引き (テスト用)
+// user メッセージ先頭の担当(verb)からレンズidを逆引き (テスト用)。
+// system は全腕共通(キャッシュのため)なので、担当は user 側にある
 function idOf(messages: ChatMessage[]): NodeId | undefined {
-  const sys = messages[0]?.content ?? "";
-  return NODE_DEFS.find((d) => sys.includes(d.verb))?.id;
+  const user = messages[1]?.content ?? "";
+  return NODE_DEFS.find((d) => user.startsWith(`[あなたの担当]\n${d.verb}`))?.id;
 }
 
 beforeEach(() => {
@@ -178,5 +179,19 @@ describe("runNodes タイムアウト", () => {
     expect(truth?.status).toBe("timeout");
     expect(run.successCount).toBe(3);
     expect(run.fallback).toBe(false);
+  });
+});
+
+describe("腕の共有システムプロンプト(キャッシュ)", () => {
+  it("全腕で system が同じで、担当は user の先頭に置く", async () => {
+    const { runNodes } = await import("../src/lib/runNodes.js");
+    mockedCall.mockImplementation(((_r: unknown, _m: ChatMessage[]) =>
+      Promise.resolve({ text: JSON.stringify({ opinions: [{ claim: "c", weight: 0.8, why: "w" }], flag: null }), inTok: 0, outTok: 0, ms: 0, estimated: false })) as never);
+    await runNodes(NODE_DEFS.map((d) => d.id), 4, "入力", "", { env: {} as never });
+    const calls = mockedCall.mock.calls.map((c) => c[1] as ChatMessage[]);
+    expect(new Set(calls.map((m) => m[0].content)).size).toBe(1);
+    // 他の担当の一覧(重ならないように)も共有部に入っている
+    expect(NODE_DEFS.every((d) => calls[0][0].content.includes(d.verb))).toBe(true);
+    expect(calls.map(idOf)).toEqual(NODE_DEFS.map((d) => d.id));
   });
 });
