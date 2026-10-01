@@ -8,14 +8,14 @@ import { synthesize, synthesizeFallback, validResonance, validMap } from "./synt
 import { verify } from "./verify.js";
 import { polishAnswer } from "./polish.js";
 import { runMapper } from "./mapper.js";
-import { pickWorlds, worldsEnabled } from "./worlds.js";
+import { pickWorlds, worldsEnabled, type WorldsPlan } from "./worlds.js";
 import { citedSources, researchEnabled, runResearch, type ResearchResult, type ResearchSource } from "./research.js";
 import { answerLanguage } from "./language.js";
 import { shouldOfferSupport, detectCare, type CareKind } from "./care.js";
 import { CostCollector, incrementQuotaState, logCost, logFailedCost } from "./costlog.js";
 import { QUOTA_UNITS, quotaStatus, type QuotaStatus } from "./guard.js";
 import { detectBoundary, withBoundaryPrefix, type BoundaryKind } from "./boundary.js";
-import { planLenses, planQuorum } from "../config/nodes.js";
+import { ALL_LENS_IDS, AXES, planLenses, planQuorum, type NodeId } from "../config/nodes.js";
 import type {
   Domain,
   Env,
@@ -75,9 +75,35 @@ export function toNodeView(n: NodeResult): AnalyzeNodeView {
   };
 }
 
-// 起動する腕の数(= 選ぶ世界の数)。ドメインに依らずプランで決まる
-export function planWorldCount(plan: Plan): number {
-  return plan === "deep" ? 8 : 4;
+// ライトの腕の選び方(wrangler vars の LIGHT_STYLE)。
+// - domain : ドメイン分類で2軸=4腕(従来)
+// - planner: 世界の選定と同じ呼び出しで「いちばん問われている2軸」を選び4腕
+// - compact8: 8腕すべてを簡潔版で(出力を抑えて原価をライト並みに)
+export type LightStyle = "domain" | "planner" | "compact8";
+export function lightStyle(env: Env): LightStyle {
+  return env.LIGHT_STYLE === "planner" || env.LIGHT_STYLE === "compact8" ? env.LIGHT_STYLE : "domain";
+}
+
+// 起動する腕の数(= 選ぶ世界の数)。ドメインに依らずプランと LIGHT_STYLE で決まる
+export function planWorldCount(plan: Plan, env: Env = {} as Env): number {
+  return plan === "deep" || lightStyle(env) === "compact8" ? 8 : 4;
+}
+
+// 起動する腕・最低成功数・簡潔版かを決める
+export function lensPlan(
+  plan: Plan,
+  domain: Domain,
+  wp: WorldsPlan | null,
+  env: Env,
+): { lensIds: NodeId[]; required: number; compact: boolean } {
+  if (plan === "light") {
+    const style = lightStyle(env);
+    if (style === "compact8") return { lensIds: ALL_LENS_IDS, required: planQuorum("deep"), compact: true };
+    if (style === "planner" && wp?.axes && wp.axes.length === 2) {
+      return { lensIds: wp.axes.flatMap((a) => AXES[a].lenses), required: planQuorum("light"), compact: false };
+    }
+  }
+  return { lensIds: planLenses(plan, domain), required: planQuorum(plan), compact: false };
 }
 
 // 回答が使った資料だけを meta.sources に載せる(使わなかった資料を出典のように見せない)
@@ -174,7 +200,7 @@ async function runAnalyzeInner(
   const [domain, plan] = await Promise.all([
     classifyDomain(req.input, { env: deps.env, collector, signal: deps.signal }),
     shouldPickWorlds(deps.env, req.input)
-      ? pickWorlds(req.input, planWorldCount(req.plan), { env: deps.env, collector, signal: deps.signal })
+      ? pickWorlds(req.input, planWorldCount(req.plan, deps.env), { env: deps.env, collector, signal: deps.signal })
       : Promise.resolve(null),
   ]);
 
@@ -188,8 +214,7 @@ async function runAnalyzeInner(
       : Promise.resolve(null);
 
   // ② プラン別レンズ並列 + クォーラム
-  const lensIds = planLenses(req.plan, domain);
-  const required = planQuorum(req.plan);
+  const { lensIds, required, compact } = lensPlan(req.plan, domain, plan, deps.env);
   // 照合モードでは資料を腕にも見せるため、腕の前に受け取る(探求モードは腕と並列)
   let research: ResearchResult | null = check ? await researchPromise : null;
   const run = await runNodes(lensIds, required, req.input, req.summary, {
@@ -200,6 +225,7 @@ async function runAnalyzeInner(
     worlds,
     check,
     research: research?.sources,
+    compact,
   });
 
   // 調べものを受け取る(失敗は回答を止めず warnings で可視化)。照合モードでは腕の前に受け取り済み

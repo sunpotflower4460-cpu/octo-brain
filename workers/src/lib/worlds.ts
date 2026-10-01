@@ -10,6 +10,7 @@
 import { callModel } from "./callModel.js";
 import { parseResearchPlan, type ResearchPlan } from "./research.js";
 import type { CostSink, Env, World } from "../types.js";
+import type { AxisId } from "../config/nodes.js";
 
 // 世界の選定の結果。worlds: 空配列は「世界を立てない」、null は失敗。research: 調べることが無ければ null
 export interface WorldsPlan {
@@ -17,6 +18,8 @@ export interface WorldsPlan {
   research: ResearchPlan | null;
   // explore: 違う世界から探求する / check: 法律・事実の質問を全腕で独立に確かめる(照合)
   mode: InquiryMode;
+  // この相談でいちばん問われている2つの軸(ライトで起動する腕の選択に使える)。読めなければ null
+  axes?: AxisId[] | null;
 }
 
 export type InquiryMode = "explore" | "check";
@@ -32,6 +35,7 @@ function worldsSystem(count: number): string {
 - ただし、相談の芯にあるテーマ(見切りの付け方・続けるか変えるか・人との距離・お金と時間の配分・失敗の扱い など)について、その世界に独自の知恵・慣習・判断基準があるものだけを選ぶ
 - name は世界の名前(${NAME_MAX}字以内)。daily は、その世界で相談のテーマに通じる、具体的な判断の場面や慣習(${DAILY_MAX}字以内。例: 登山ガイド「天候が崩れる前に、登頂を諦める時刻を出発前に決めておく」)。「チームワークが大事」のような決まり文句は書かない
 - 迷いや判断を含まない相談(単純な事実・相場・手順の質問、計算や文章作成などの作業依頼、あいさつや雑談)なら worlds は空配列にする
+- axes: この相談でいちばん問われている観点を、次の4つから2つ選ぶ: "time"(判断の前提になる事実と、将来どう見えるか) / "heart"(言葉の裏の気持ちと、本人が目を背けているかもしれないこと) / "motion"(見えていない危うさと、次の具体的な一手) / "soul"(本人の味方としての受け止めと、本当に大切にしているもの)
 - mode: 相談の答えが法律・制度・手続き・事実で決まるもの(「有給はもらえる?」「辞めさせないと言われた」「申告は必要?」のように、権利・義務・手続きの正解がある)なら "check"、それ以外(人生の選択・人間関係・迷い・作業依頼・雑談)は "explore"。"check" のときは worlds を空配列にし、research で確かめる事実を必ず挙げる
 あわせて、答えの判断に関わる事実を公的・公開の情報で確かめるための research を出す(世界が空でも出してよい):
 - laws: 相談が法律上の権利・義務・手続き(退職・解雇・残業代・有給・育休・敷金・届出・税の申告など)そのものを問うときだけ、その答えを直接定める条文の法令の正式名称と条番号(例 {"law":"労働基準法","article":"20"}、枝番は "61の4")。条番号に確信があるものだけ。定義規定や周辺の条文は挙げない。人生の選択の相談では空にする。最大2
@@ -40,7 +44,7 @@ function worldsSystem(count: number): string {
 - 検索語には相談者を特定できる情報(名前・会社名・学校名・細かい地名・金額の組合せ)を入れない。一般的な言葉だけにする
 - 気持ちや人間関係だけの相談など、確かめる事実がなければ research は null
 出力は次のJSONのみ(前置き禁止):
-{"mode":"explore" | "check","worlds":[{"name":"","daily":""}],"research":{"laws":[{"law":"","article":""}],"topics":[""],"web":[""]} | null}`;
+{"mode":"explore" | "check","axes":["time" | "heart" | "motion" | "soul", "..."],"worlds":[{"name":"","daily":""}],"research":{"laws":[{"law":"","article":""}],"topics":[""],"web":[""]} | null}`;
 }
 
 // モデルの回答から世界の一覧を取り出す。空配列は「世界を立てない」、null は失敗。
@@ -74,6 +78,14 @@ export function parseWorlds(raw: string): World[] | null {
 // 同じ出力から探求のしかたを取り出す。読めなければ従来どおり explore
 export function parseMode(raw: string): InquiryMode {
   return /"mode"\s*:\s*"check"/.test(raw) ? "check" : "explore";
+}
+
+// 同じ出力から、いちばん問われている2つの軸を取り出す(重複・不正は捨てる。2つそろわなければ null)
+export function parseAxes(raw: string): AxisId[] | null {
+  const m = raw.match(/"axes"\s*:\s*\[([^\]]*)\]/);
+  if (!m) return null;
+  const ids = [...new Set(m[1].match(/"(time|heart|motion|soul)"/g)?.map((x) => x.replace(/"/g, "") as AxisId) ?? [])];
+  return ids.length >= 2 ? ids.slice(0, 2) : null;
 }
 
 // 同じ出力から「何を調べるか」を取り出す(壊れていれば null)
@@ -110,6 +122,7 @@ export async function pickWorlds(
       worlds: mode === "check" ? [] : (parseWorlds(res.text)?.slice(0, count) ?? null),
       research: parseResearch(res.text),
       mode,
+      axes: parseAxes(res.text),
     };
   } catch {
     return { worlds: null, research: null, mode: "explore" };

@@ -37,6 +37,8 @@ export interface RunNodesOpts {
   check?: boolean;
   // 照合モードで腕にも見せる資料(調べて確かめたもの)
   research?: ResearchSource[];
+  // 簡潔版(ライトで8つの腕を使うとき。出力を抑える)
+  compact?: boolean;
 }
 
 export interface RunNodesResult {
@@ -103,7 +105,7 @@ async function runOne(
       [
         {
           role: "system",
-          content: nodeSharedSystem(opts.check ? "check" : world ? "world" : "plain"),
+          content: nodeSharedSystem(opts.check ? "check" : world ? "world" : "plain", opts.compact === true),
         },
         { role: "user", content: `${nodeTaskLine(def)}\n\n${userText}` },
       ],
