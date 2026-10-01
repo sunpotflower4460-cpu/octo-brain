@@ -172,11 +172,14 @@ const SHARED_NODE_HEAD = `あなたはOctoBrainの分析レンズです。user �
 const LENS_ROSTER = `同じ相談を、次の8つの担当が別々に見ている。担当ごとに観点が違う。自分の担当の観点に集中し、他の担当の観点は書かない(重ならないことで、全体として見落としが減る):
 ${NODE_DEFS.map((d, i) => `${i + 1}. ${d.verb}`).join("\n")}`;
 
-export function nodeSharedSystem(mode: NodeMode): string {
+// 簡潔版(ライトで8つの腕を使うとき)。出力トークンを抑えて、腕を増やしても原価を据え置く
+const COMPACT_RULES = `簡潔に出す: opinions は最大2件。experience は60字以内、move は50字以内、facts は最大1件(照合では最大2件)。各項目は一文で`;
+
+export function nodeSharedSystem(mode: NodeMode, compact = false): string {
   const rules = mode === "world" ? WORLD_NODE_RULES : mode === "check" ? CHECK_NODE_RULES : "";
   const format =
     mode === "world" ? WORLD_NODE_OUTPUT_FORMAT : mode === "check" ? CHECK_NODE_OUTPUT_FORMAT : NODE_OUTPUT_FORMAT;
-  return [SHARED_NODE_HEAD, LENS_ROSTER, rules, format].join("\n\n");
+  return [SHARED_NODE_HEAD, LENS_ROSTER, rules, compact ? COMPACT_RULES : "", format].filter(Boolean).join("\n\n");
 }
 
 // user メッセージの先頭に置く担当

@@ -13,11 +13,10 @@ import { shouldOfferSupport, detectCare } from "./care.js";
 import { CostCollector, incrementQuotaState, logCost, logFailedCost } from "./costlog.js";
 import { QUOTA_UNITS, quotaStatus, type QuotaStatus } from "./guard.js";
 import { detectBoundary, boundaryPrefix, withBoundaryPrefix } from "./boundary.js";
-import { planLenses, planQuorum } from "../config/nodes.js";
 import { pickWorlds, type WorldsPlan } from "./worlds.js";
 import { researchEnabled, runResearch, type ResearchResult } from "./research.js";
 import { answerLanguage } from "./language.js";
-import { boundaryAfterResearch, sourcesMeta, planWorldCount, shouldPickWorlds, toNodeView, type AnalyzeInput, type AnalyzeDeps, type AnalyzeMeta } from "./analyze.js";
+import { boundaryAfterResearch, lensPlan, sourcesMeta, planWorldCount, shouldPickWorlds, toNodeView, type AnalyzeInput, type AnalyzeDeps, type AnalyzeMeta } from "./analyze.js";
 import type { Domain } from "../types.js";
 
 export type SSEPhase = "routing" | "nodes" | "synth" | "verify";
@@ -62,7 +61,7 @@ async function runAnalyzeStreamInner(
   const [domain, plan]: [Domain, WorldsPlan | null] = await Promise.all([
     classifyDomain(req.input, { env: deps.env, collector, signal: deps.signal }),
     shouldPickWorlds(deps.env, req.input)
-      ? pickWorlds(req.input, planWorldCount(req.plan), { env: deps.env, collector, signal: deps.signal })
+      ? pickWorlds(req.input, planWorldCount(req.plan, deps.env), { env: deps.env, collector, signal: deps.signal })
       : Promise.resolve(null),
   ]);
 
@@ -77,8 +76,7 @@ async function runAnalyzeStreamInner(
 
   // ② プラン別レンズ並列(完了順に node イベント)
   // nodes フェーズで起動レンズIDを同送し、UIが真に起動した腕だけを working 表示できるようにする。
-  const lensIds = planLenses(req.plan, domain);
-  const required = planQuorum(req.plan);
+  const { lensIds, required, compact } = lensPlan(req.plan, domain, plan, deps.env);
   // 世界つきなら、腕ごとの世界の名前も同送する(探求中から「どの世界から見ているか」を見せる)
   const worldNames = worlds && worlds.length > 0 ? lensIds.map((_, i) => worlds[i]?.name ?? null) : undefined;
   emit("phase", { phase: "nodes" satisfies SSEPhase, nodeIds: lensIds, ...(worldNames ? { worlds: worldNames } : {}) });
@@ -93,6 +91,7 @@ async function runAnalyzeStreamInner(
     worlds,
     check,
     research: research?.sources,
+    compact,
   });
 
   // 調べものを受け取る(失敗は回答を止めず warnings で可視化)。照合モードでは腕の前に受け取り済み
