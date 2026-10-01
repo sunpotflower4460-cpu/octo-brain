@@ -9,6 +9,8 @@ import { verify } from "./verify.js";
 import { polishAnswer } from "./polish.js";
 import { runMapper } from "./mapper.js";
 import { pickWorlds, worldsEnabled } from "./worlds.js";
+import { citedSources, researchEnabled, runResearch, type ResearchSource } from "./research.js";
+import { answerLanguage } from "./language.js";
 import { shouldOfferSupport, detectCare, type CareKind } from "./care.js";
 import { CostCollector, incrementQuotaState, logCost, logFailedCost } from "./costlog.js";
 import { QUOTA_UNITS, quotaStatus, type QuotaStatus } from "./guard.js";
@@ -76,6 +78,23 @@ export function planWorldCount(plan: Plan): number {
   return plan === "deep" ? 8 : 4;
 }
 
+// 回答が使った資料だけを meta.sources に載せる(使わなかった資料を出典のように見せない)
+export function sourcesMeta(
+  answer: string,
+  sources: ResearchSource[] | undefined,
+): { sources?: { kind: ResearchSource["kind"]; title: string; url: string }[] } {
+  const used = citedSources(answer, sources ?? []);
+  return used.length > 0 ? { sources: used.map((s) => ({ kind: s.kind, title: s.title, url: s.url })) } : {};
+}
+
+// ウェブ検索で最新の資料が取れたなら「最新情報は持っていない」の但し書きは付けない
+export function boundaryAfterResearch(
+  boundary: BoundaryKind | null,
+  sources: ResearchSource[] | undefined,
+): BoundaryKind | null {
+  return boundary === "recency" && sources?.some((s) => s.kind === "web") ? null : boundary;
+}
+
 // 腕が立つ世界を選ぶか(設定がオンで、寄り添いモードでないとき)。
 // 繊細な相談では、別の世界の話を持ち込まず本人に向き合う
 export function shouldPickWorlds(env: Env, input: string): boolean {
@@ -104,6 +123,8 @@ export interface AnalyzeMeta {
   // 利用状況(残り回数の表示用)。KV 失敗時は付かない
   quota?: QuotaStatus;
   boundary?: BoundaryKind | null; // 正直な但し書きを添えた領域(計算/最新情報)。null は無し
+  // 調べて確かめた資料(法令・百科事典・ウェブ)。アプリは回答の下に出典として出す
+  sources?: { kind: ResearchSource["kind"]; title: string; url: string }[];
   warnings?: string[];
 }
 
@@ -146,12 +167,19 @@ async function runAnalyzeInner(
   // ① Router: ドメイン分類(light の軸選択 + meta 表示)
   // signal を渡し、リクエスト予算超過で router が宙吊りにならないようにする(P5)。
   // 腕が立つ世界の選定はドメイン分類と並列に行う(待ち時間を増やさない)
-  const [domain, worlds] = await Promise.all([
+  const [domain, plan] = await Promise.all([
     classifyDomain(req.input, { env: deps.env, collector, signal: deps.signal }),
     shouldPickWorlds(deps.env, req.input)
       ? pickWorlds(req.input, planWorldCount(req.plan), { env: deps.env, collector, signal: deps.signal })
       : Promise.resolve(null),
   ]);
+
+  const worlds = plan?.worlds ?? null;
+  // 調べもの(公的・公開の情報源)は腕の探求と並列に進め、統合の前に受け取る
+  const researchPromise =
+    plan?.research && researchEnabled(deps.env)
+      ? runResearch(plan.research, { env: deps.env, lang: answerLanguage(req.input), signal: deps.signal })
+      : Promise.resolve(null);
 
   // ② プラン別レンズ並列 + クォーラム
   const lensIds = planLenses(req.plan, domain);
@@ -163,6 +191,10 @@ async function runAnalyzeInner(
     signal: deps.signal,
     worlds,
   });
+
+  // 調べものを受け取る(失敗は回答を止めず warnings で可視化)
+  const research = await researchPromise;
+  if (research?.failures.length) warnings.push(`research_failed: ${research.failures.join(",")}`);
 
   // ③ 掘る統合 or フォールバック
   // 視点の地図は統合脳と並列に作る(待ち時間を増やさない)。寄り添いモードでは作らない
@@ -180,13 +212,13 @@ async function runAnalyzeInner(
         env: deps.env,
         collector,
         signal: deps.signal,
-        careTurns: req.careTurns, prevAnswer: req.prevAnswer,
+        careTurns: req.careTurns, prevAnswer: req.prevAnswer, research: research?.sources,
       })
     : await synthesize(req.input, req.summary, run.nodes, {
         env: deps.env,
         collector,
         signal: deps.signal,
-        careTurns: req.careTurns, prevAnswer: req.prevAnswer,
+        careTurns: req.careTurns, prevAnswer: req.prevAnswer, research: research?.sources,
       });
 
   // ④ 検証(表面のみ最小修正)
@@ -206,7 +238,7 @@ async function runAnalyzeInner(
   if (synth.resonance && !resonance) warnings.push("resonance_dropped: lens_not_active");
 
   // ④' 境界の正直さ: 苦手系(計算/最新情報)を検出したら回答冒頭に正直な但し書き
-  const boundary = detectBoundary(req.input);
+  const boundary = boundaryAfterResearch(detectBoundary(req.input), research?.sources);
   // 最終整形(入力に無い引用の除去・記号の乱れの修正)
   const care = detectCare(req.input);
   const polished = polishAnswer(verified.text, req.input, { dropOpeningQuote: care !== null });
@@ -257,6 +289,7 @@ async function runAnalyzeInner(
     quotaUsed,
     ...(quota ? { quota } : {}),
     boundary,
+    ...sourcesMeta(polished.text, research?.sources),
   };
   if (warnings.length > 0) meta.warnings = warnings;
   if (deps.economy) meta.economy = true;

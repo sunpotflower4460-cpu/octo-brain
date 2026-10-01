@@ -50,6 +50,8 @@ LUNA_SYNTH_REASONING = "low"
 # (docs/01_depth_design.md §5.5)。"on" 以外なら従来どおり。
 # 2026-10-01 盲検評価(18問)で単体チャットを初めて上回ったため既定でオン
 WORLDS = "on"
+# RESEARCH: 判断に関わる事実を e-Gov 法令API・Wikipedia(無料)と Tavily(TAVILY_API_KEY があるときだけ)で
+# 確かめて統合脳に渡す(docs/01_depth_design.md §5.6)。"off" で停止。WORLDS がオンのときに働く
 
 # IP 単位のバースト制限(Cloudflare Rate Limiting)。60秒あたり limit 回まで。
 # namespace_id はアカウント内で一意な任意の整数文字列。

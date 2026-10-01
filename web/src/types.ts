@@ -70,6 +70,8 @@ export interface AnalyzeMeta {
   // 利用状況(残り回数の表示用)
   quota?: QuotaStatus;
   boundary?: BoundaryKind | null;
+  // 調べて確かめた資料(回答の下に出典として出す)
+  sources?: SourceRef[];
   warnings?: string[];
 }
 
@@ -134,6 +136,12 @@ export interface ResonateResponse {
 }
 
 // 視点の地図: 1つの答えにまとめると消えてしまう、視点の分かれ方
+export interface SourceRef {
+  kind: "law" | "wiki" | "web";
+  title: string;
+  url: string;
+}
+
 export interface PerspectiveMap {
   agree: { point: string; lenses: string[] } | null;
   // 世界つきのときは、その意見を出した腕が立った世界(world)も付く
