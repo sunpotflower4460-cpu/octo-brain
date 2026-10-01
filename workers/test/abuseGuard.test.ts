@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import app from "../src/index.js";
 import { quotaKey } from "../src/lib/costlog.js";
 import {
@@ -36,6 +36,11 @@ function req(path: string, body: unknown, ip?: string): Request {
   if (ip) headers["CF-Connecting-IP"] = ip;
   return new Request(`http://x${path}`, { method: "POST", headers, body: JSON.stringify(body) });
 }
+
+// 1日原価の使い回し(isolate 内のキャッシュ)はテストごとに捨てる
+beforeEach(async () => {
+  (await import("../src/lib/costlog.js")).resetSpendCache();
+});
 
 describe("isValidClientId", () => {
   it("UUID と英数・-_ の64字以内を受理", () => {
@@ -259,5 +264,30 @@ describe("大勢が使うときの対策(予算の分散記録・段階的縮退
     expect(parseQuotaValue("30|20260929|20", now)).toEqual({ month: 30, day: 0 });
     expect(parseQuotaValue("12", now)).toEqual({ month: 12, day: 0 });
     expect(parseQuotaValue("5|20260930|3", now)).toEqual({ month: 5, day: 3 });
+  });
+});
+
+describe("1リクエストの外部呼び出しを減らす(無料プランは KV を含め50回まで)", () => {
+  it("1日原価の合計は1分間使い回し、16キーを毎回読まない。自分で足した分はすぐ反映する", async () => {
+    const { readDailySpendUsd, logCost, CostCollector, SPEND_SHARDS } = await import("../src/lib/costlog.js");
+    const store = new Map<string, string>();
+    let gets = 0;
+    const kv = {
+      get: async (k: string) => (gets++, store.get(k) ?? null),
+      put: async (k: string, v: string) => void store.set(k, v),
+    } as unknown as KVNamespace;
+    const now = new Date("2026-10-01T10:00:00Z");
+    expect(await readDailySpendUsd(kv, now)).toBe(0);
+    expect(gets).toBe(SPEND_SHARDS);
+    expect(await readDailySpendUsd(kv, new Date(now.getTime() + 30_000))).toBe(0);
+    expect(gets).toBe(SPEND_SHARDS); // 使い回し
+    const col = new CostCollector();
+    col.record({ role: "synth", model: "m", inTok: 0, outTok: 0, estCost: 0.01, ms: 0, estimated: false });
+    await logCost(kv, "r1", col, { quorum: "4/4", fallback: false, ms: 1, kind: "analyze" }, now);
+    expect(await readDailySpendUsd(kv, new Date(now.getTime() + 40_000))).toBeCloseTo(0.01, 6);
+    // 1分を過ぎたら読み直す
+    const before = gets;
+    await readDailySpendUsd(kv, new Date(now.getTime() + 61_000));
+    expect(gets).toBe(before + SPEND_SHARDS);
   });
 });

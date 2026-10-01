@@ -21,6 +21,8 @@ export interface ModelConfig {
   keyEnv: string; // 参照する環境変数名 (例: "DEEPSEEK_API_KEY")
   pricePerMTokIn: number; // USD / 100万入力トークン
   pricePerMTokOut: number; // USD / 100万出力トークン
+  // キャッシュ済み入力の単価(プロンプトの先頭が直近の呼び出しと同じとき自動で安くなる)。未設定なら通常単価
+  pricePerMTokCachedIn?: number;
   // openai-compat のリクエストボディに追加する provider 固有パラメータ
   // (例: DeepSeek の思考モード無効化 { thinking: { type: "disabled" } })。
   // model / messages / max_tokens / stream は上書きできない(抽象化レイヤー側が優先)。
@@ -71,6 +73,7 @@ const LUNA = {
   keyEnv: "OPENAI_API_KEY",
   pricePerMTokIn: 0.1,
   pricePerMTokOut: 0.5,
+  pricePerMTokCachedIn: 0.01,
   extraBody: { reasoning_effort: "none" },
   maxTokensParam: "max_completion_tokens",
 } as const satisfies Omit<ModelConfig, "maxTokens">;
@@ -92,6 +95,7 @@ export const BASELINE_MODELS: Record<"luna" | "sol" | "pro", ModelConfig> = {
     keyEnv: "OPENAI_API_KEY",
     pricePerMTokIn: 2,
     pricePerMTokOut: 10,
+    pricePerMTokCachedIn: 0.1,
     extraBody: { reasoning_effort: "medium" },
     maxTokensParam: "max_completion_tokens",
     maxTokens: 3000,
@@ -213,13 +217,17 @@ export function pickNodeModel(index: number, env: Record<string, unknown>): Mode
 }
 
 // USD 概算コスト。トークン数と単価から算出。
+// cachedTok: 入力のうちキャッシュから読まれた分(OpenAI の usage.prompt_tokens_details.cached_tokens)
 export function estimateCost(
   cfg: ModelConfig,
   inTok: number,
   outTok: number,
+  cachedTok = 0,
 ): number {
+  const cached = Math.min(Math.max(cachedTok, 0), inTok);
   return (
-    (inTok / 1_000_000) * cfg.pricePerMTokIn +
+    ((inTok - cached) / 1_000_000) * cfg.pricePerMTokIn +
+    (cached / 1_000_000) * (cfg.pricePerMTokCachedIn ?? cfg.pricePerMTokIn) +
     (outTok / 1_000_000) * cfg.pricePerMTokOut
   );
 }

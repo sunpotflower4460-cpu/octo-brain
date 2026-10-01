@@ -69,7 +69,29 @@ export function spendKey(now: Date, shard = 0): string {
   return `spend:${yyyymmdd(now)}:${shard}`;
 }
 
+// 1日の原価の合計は、同じ実行環境(isolate)の中で SPEND_CACHE_MS だけ使い回す。
+// Workers は1リクエストあたりの外部呼び出し(KV を含む)が無料プランで50回までのため、
+// 毎回16キーを読むと AI 呼び出しと合わせて上限に届く(混雑時の再試行で実際に超えた)。
+// 予算上限の判定が最大1分遅れるだけで、この実行環境で足した分は即座に上乗せする。
+const SPEND_CACHE_MS = 60_000;
+// KV ごとに持つ(名前空間が違えば別の合計)
+let spendCache = new WeakMap<KVNamespace, { day: string; usd: number; at: number }>();
+
+// テスト用: 使い回しを捨てる
+export function resetSpendCache(): void {
+  spendCache = new WeakMap();
+}
+
 export async function readDailySpendUsd(kv: KVNamespace, now: Date): Promise<number> {
+  const day = yyyymmdd(now);
+  const c = spendCache.get(kv);
+  if (c && c.day === day && now.getTime() - c.at < SPEND_CACHE_MS) return c.usd;
+  const usd = await readDailySpendFromKv(kv, now);
+  spendCache.set(kv, { day, usd, at: now.getTime() });
+  return usd;
+}
+
+async function readDailySpendFromKv(kv: KVNamespace, now: Date): Promise<number> {
   const vals = await Promise.all(
     Array.from({ length: SPEND_SHARDS }, (_, i) => kv.get(spendKey(now, i))),
   );
@@ -83,6 +105,9 @@ export async function readDailySpendUsd(kv: KVNamespace, now: Date): Promise<num
 
 async function addDailySpend(kv: KVNamespace, usd: number, now: Date): Promise<void> {
   if (!(usd > 0)) return;
+  // 使い回している合計にも、この実行環境で使った分をすぐ足す
+  const c = spendCache.get(kv);
+  if (c && c.day === yyyymmdd(now)) c.usd += usd;
   const key = spendKey(now, Math.floor(Math.random() * SPEND_SHARDS));
   const cur = await kv.get(key);
   const parsed = cur ? parseInt(cur, 10) : 0;

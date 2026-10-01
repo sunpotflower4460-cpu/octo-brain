@@ -38,7 +38,8 @@ describe("プロバイダー切り替え(非ストリーム)", () => {
     const col = new CostCollector();
     const r = await callModel("node", messages, { env: both, retryBaseMs: 0, collector: col });
     expect(r.text).toBe("deepseek の回答");
-    expect(fetch.mock.calls.filter((c) => String(c[0]).includes("openai"))).toHaveLength(3);
+    // 切り替え先があるので、混雑(429)での同じ相手への再試行は1回まで(外部呼び出し回数を節約)
+    expect(fetch.mock.calls.filter((c) => String(c[0]).includes("openai"))).toHaveLength(2);
     expect(col.calls[0]).toMatchObject({ model: "deepseek-flash", fallback: true });
   });
 

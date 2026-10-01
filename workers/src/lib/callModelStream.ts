@@ -10,6 +10,7 @@ import {
   type ModelRole,
 } from "../config/models.js";
 import {
+  cachedOf,
   ModelHttpError,
   rateLimitOf,
   shouldFallback,
@@ -21,6 +22,7 @@ interface StreamPiece {
   delta?: string;
   inTok?: number;
   outTok?: number;
+  cachedTok?: number;
   done?: boolean;
   truncated?: boolean; // 出力上限で打ち切られた(finish_reason=length 等)
 }
@@ -52,6 +54,7 @@ export async function* callModelStream(
   let acc = "";
   let inTok: number | null = null;
   let outTok: number | null = null;
+  let cachedTok: number | undefined;
   let truncated = false;
 
   for await (const data of readSSE(body, opts.signal)) {
@@ -59,6 +62,7 @@ export async function* callModelStream(
     const piece = extractStreamPiece(cfg, data);
     if (piece.inTok != null) inTok = piece.inTok;
     if (piece.outTok != null) outTok = piece.outTok;
+    if (piece.cachedTok != null) cachedTok = piece.cachedTok;
     if (piece.truncated) truncated = true;
     if (piece.delta) {
       acc += piece.delta;
@@ -76,7 +80,8 @@ export async function* callModelStream(
     model: cfg.model,
     inTok: finalIn,
     outTok: finalOut,
-    estCost: estimateCost(cfg, finalIn, finalOut),
+    ...(cachedTok ? { cachedTok } : {}),
+    estCost: estimateCost(cfg, finalIn, finalOut, cachedTok),
     ms,
     estimated,
     ...rateLimitOf(res),
@@ -210,6 +215,7 @@ function extractStreamPiece(cfg: ModelConfig, data: string): StreamPiece {
         delta: asString(delta.content),
         inTok: usage ? asNumber(usage.prompt_tokens) ?? undefined : undefined,
         outTok: usage ? asNumber(usage.completion_tokens) ?? undefined : undefined,
+        ...(usage ? cachedOf(usage) : {}),
       };
     }
     case "anthropic": {

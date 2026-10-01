@@ -47,13 +47,17 @@ export async function callModel(
   opts: CallModelOpts,
 ): Promise<ModelCallResult> {
   const primary = opts.modelOverride ?? modelFor(role, opts.env);
+  const fallback = fallbackFor(role, opts.env, primary);
   try {
-    return await callWith(role, primary, messages, opts, false);
+    // 切り替え先があるときは、混雑(429)での同じ相手への再試行を1回までにする
+    // (1リクエストの外部呼び出し回数の上限を使い切らないため。ただし1回は待つ: 切り替え先の
+    // DeepSeek は統合脳の単価が高く、すぐ切り替えると混雑時の原価が数倍になった)
+    return await callWith(role, primary, messages, opts, false, fallback !== null);
   } catch (err) {
     // 混雑(429)・障害(5xx)・接続失敗なら、もう一方のプロバイダーで1回だけ試す
-    const fb = shouldFallback(err) ? fallbackFor(role, opts.env, primary) : null;
+    const fb = shouldFallback(err) ? fallback : null;
     if (!fb) throw err;
-    return await callWith(role, fb, messages, opts, true);
+    return await callWith(role, fb, messages, opts, true, false);
   }
 }
 
@@ -81,6 +85,7 @@ async function callWith(
   messages: ChatMessage[],
   opts: CallModelOpts,
   fellBack: boolean,
+  noRetryOn429: boolean,
 ): Promise<ModelCallResult> {
   // 推論の予算は上書きされた上限にも上乗せする(推論で本文が空にならないように)
   const maxTokens = (opts.maxTokens ?? cfg.maxTokens) + (cfg.reasoningBudget ?? 0);
@@ -94,6 +99,7 @@ async function callWith(
     req.init,
     opts.signal,
     opts.retryBaseMs ?? DEFAULT_RETRY_BASE_MS,
+    noRetryOn429,
   );
   const bodyText = await res.text();
   const ms = nowMs() - start;
@@ -114,7 +120,8 @@ async function callWith(
     model: cfg.model,
     inTok: out.inTok,
     outTok: out.outTok,
-    estCost: estimateCost(cfg, out.inTok, out.outTok),
+    ...(out.cachedTok ? { cachedTok: out.cachedTok } : {}),
+    estCost: estimateCost(cfg, out.inTok, out.outTok, out.cachedTok),
     ms,
     estimated: out.estimated,
     ...rateLimitOf(res),
@@ -315,7 +322,7 @@ function extractResult(
       const inTok = asNumber(usage.prompt_tokens);
       const outTok = asNumber(usage.completion_tokens);
       const truncated = asString(first.finish_reason) === "length";
-      return finalize(text, inTok, outTok, inCharsFallback, truncated);
+      return { ...finalize(text, inTok, outTok, inCharsFallback, truncated), ...cachedOf(usage) };
     }
     case "gemini": {
       const candidates = asArray(p.candidates);
@@ -343,6 +350,13 @@ function extractResult(
       return finalize(text, inTok, outTok, inCharsFallback, truncated);
     }
   }
+}
+
+// OpenAI 互換の usage からキャッシュ済み入力トークン数を取る(無ければ何も足さない)
+export function cachedOf(usage: Record<string, unknown>): { cachedTok?: number } {
+  const details = usage.prompt_tokens_details as Record<string, unknown> | undefined;
+  const v = details?.cached_tokens;
+  return typeof v === "number" && v > 0 ? { cachedTok: v } : {};
 }
 
 function finalize(
@@ -373,12 +387,14 @@ async function fetchWithRetry(
   init: RequestInit,
   signal: AbortSignal | undefined,
   retryBaseMs: number,
+  noRetryOn429 = false,
 ): Promise<Response> {
   let lastErr: unknown;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     throwIfAborted(signal);
     try {
       const res = await fetch(url, { ...init, signal });
+      if (res.status === 429 && noRetryOn429 && attempt >= 1) return res;
       if (isRetryable(res.status) && attempt < MAX_RETRIES) {
         // 混雑時はプロバイダーが示す待ち時間(Retry-After)を尊重する(上限 2 秒。長ければ切り替えに任せる)
         await backoff(retryBaseMs, attempt, signal, retryAfterMs(res));
