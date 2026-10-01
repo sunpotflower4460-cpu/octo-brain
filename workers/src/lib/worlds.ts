@@ -8,7 +8,14 @@
 // 失敗・不正応答は null(世界なしで従来どおり動く)。全呼び出しは callModel 経由(絶対ルール5)。
 
 import { callModel } from "./callModel.js";
+import { parseResearchPlan, type ResearchPlan } from "./research.js";
 import type { CostSink, Env, World } from "../types.js";
+
+// 世界の選定の結果。worlds: 空配列は「世界を立てない」、null は失敗。research: 調べることが無ければ null
+export interface WorldsPlan {
+  worlds: World[] | null;
+  research: ResearchPlan | null;
+}
 
 export const WORLD_COUNT = 8;
 const NAME_MAX = 30;
@@ -21,8 +28,14 @@ function worldsSystem(count: number): string {
 - ただし、相談の芯にあるテーマ(見切りの付け方・続けるか変えるか・人との距離・お金と時間の配分・失敗の扱い など)について、その世界に独自の知恵・慣習・判断基準があるものだけを選ぶ
 - name は世界の名前(${NAME_MAX}字以内)。daily は、その世界で相談のテーマに通じる、具体的な判断の場面や慣習(${DAILY_MAX}字以内。例: 登山ガイド「天候が崩れる前に、登頂を諦める時刻を出発前に決めておく」)。「チームワークが大事」のような決まり文句は書かない
 - 迷いや判断を含まない相談(単純な事実・相場・手順の質問、計算や文章作成などの作業依頼、あいさつや雑談)なら worlds は空配列にする
+あわせて、答えの判断に関わる事実を公的・公開の情報で確かめるための research を出す(世界が空でも出してよい):
+- laws: 相談が法律上の権利・義務・手続き(退職・解雇・残業代・有給・育休・敷金・届出・税の申告など)そのものを問うときだけ、その答えを直接定める条文の法令の正式名称と条番号(例 {"law":"労働基準法","article":"20"}、枝番は "61の4")。条番号に確信があるものだけ。定義規定や周辺の条文は挙げない。人生の選択の相談では空にする。最大2
+- topics: 背景を確かめたい用語・制度の Wikipedia の記事名になりそうな名詞(例 "育児休業"、"個人事業主")。最大2
+- web: 最新の相場・価格・今年の制度変更・最近の出来事が判断を左右するときだけ、短い検索語。最大1
+- 検索語には相談者を特定できる情報(名前・会社名・学校名・細かい地名・金額の組合せ)を入れない。一般的な言葉だけにする
+- 気持ちや人間関係だけの相談など、確かめる事実がなければ research は null
 出力は次のJSONのみ(前置き禁止):
-{"worlds":[{"name":"","daily":""}]}`;
+{"worlds":[{"name":"","daily":""}],"research":{"laws":[{"law":"","article":""}],"topics":[""],"web":[""]} | null}`;
 }
 
 // モデルの回答から世界の一覧を取り出す。空配列は「世界を立てない」、null は失敗。
@@ -53,13 +66,25 @@ export function parseWorlds(raw: string): World[] | null {
   return out;
 }
 
-// 世界を選ぶ。WORLDS="on" のときだけ呼ぶ。空配列・失敗なら世界なしで進める。
+// 同じ出力から「何を調べるか」を取り出す(壊れていれば null)
+export function parseResearch(raw: string): ResearchPlan | null {
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start === -1 || end <= start) return null;
+  try {
+    return parseResearchPlan((JSON.parse(raw.slice(start, end + 1)) as { research?: unknown }).research);
+  } catch {
+    return null;
+  }
+}
+
+// 世界を選ぶ(あわせて何を調べるかも決める)。WORLDS="on" のときだけ呼ぶ。空配列・失敗なら世界なしで進める。
 // count は起動する腕の数(light=4, deep=8)。必要な数だけ選ばせて待ち時間を抑える。
 export async function pickWorlds(
   input: string,
   count: number,
   opts: { env: Env; collector?: CostSink; signal?: AbortSignal },
-): Promise<World[] | null> {
+): Promise<WorldsPlan> {
   try {
     const res = await callModel(
       "worlds",
@@ -69,9 +94,9 @@ export async function pickWorlds(
       ],
       { env: opts.env, collector: opts.collector, signal: opts.signal },
     );
-    return parseWorlds(res.text)?.slice(0, count) ?? null;
+    return { worlds: parseWorlds(res.text)?.slice(0, count) ?? null, research: parseResearch(res.text) };
   } catch {
-    return null;
+    return { worlds: null, research: null };
   }
 }
 

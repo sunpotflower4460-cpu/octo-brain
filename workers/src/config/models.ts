@@ -110,8 +110,8 @@ const MAX_TOKENS: Record<ModelRole, number> = {
   // 視点の地図(番号で答える小さな JSON)
   // 世界をまたぐ本質も返すときがあるので余裕を持たせる(切れると地図全体が読めない)
   mapper: 700,
-  // 視点の世界の選定(8つの世界の名前と日常を短い JSON で)
-  worlds: 700,
+  // 視点の世界の選定(8つの世界の名前と日常+何を調べるかを短い JSON で)
+  worlds: 900,
 };
 
 export type ModelProfile = "deepseek" | "luna";

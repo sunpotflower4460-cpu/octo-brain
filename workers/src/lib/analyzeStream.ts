@@ -14,9 +14,11 @@ import { CostCollector, incrementQuotaState, logCost, logFailedCost } from "./co
 import { QUOTA_UNITS, quotaStatus, type QuotaStatus } from "./guard.js";
 import { detectBoundary, boundaryPrefix, withBoundaryPrefix } from "./boundary.js";
 import { planLenses, planQuorum } from "../config/nodes.js";
-import { pickWorlds } from "./worlds.js";
-import { planWorldCount, shouldPickWorlds, toNodeView, type AnalyzeInput, type AnalyzeDeps, type AnalyzeMeta } from "./analyze.js";
-import type { Domain, World } from "../types.js";
+import { pickWorlds, type WorldsPlan } from "./worlds.js";
+import { researchEnabled, runResearch } from "./research.js";
+import { answerLanguage } from "./language.js";
+import { boundaryAfterResearch, sourcesMeta, planWorldCount, shouldPickWorlds, toNodeView, type AnalyzeInput, type AnalyzeDeps, type AnalyzeMeta } from "./analyze.js";
+import type { Domain } from "../types.js";
 
 export type SSEPhase = "routing" | "nodes" | "synth" | "verify";
 
@@ -57,12 +59,19 @@ async function runAnalyzeStreamInner(
   // ① Router
   emit("phase", { phase: "routing" satisfies SSEPhase });
   // 腕が立つ世界の選定はドメイン分類と並列に行う(待ち時間を増やさない)
-  const [domain, worlds]: [Domain, World[] | null] = await Promise.all([
+  const [domain, plan]: [Domain, WorldsPlan | null] = await Promise.all([
     classifyDomain(req.input, { env: deps.env, collector, signal: deps.signal }),
     shouldPickWorlds(deps.env, req.input)
       ? pickWorlds(req.input, planWorldCount(req.plan), { env: deps.env, collector, signal: deps.signal })
       : Promise.resolve(null),
   ]);
+
+  const worlds = plan?.worlds ?? null;
+  // 調べもの(公的・公開の情報源)は腕の探求と並列に進め、統合の前に受け取る
+  const researchPromise =
+    plan?.research && researchEnabled(deps.env)
+      ? runResearch(plan.research, { env: deps.env, lang: answerLanguage(req.input), signal: deps.signal })
+      : Promise.resolve(null);
 
   // ② プラン別レンズ並列(完了順に node イベント)
   // nodes フェーズで起動レンズIDを同送し、UIが真に起動した腕だけを working 表示できるようにする。
@@ -80,6 +89,10 @@ async function runAnalyzeStreamInner(
     worlds,
   });
 
+  // 調べものを受け取る(失敗は回答を止めず warnings で可視化)
+  const research = await researchPromise;
+  if (research?.failures.length) warnings.push(`research_failed: ${research.failures.join(",")}`);
+
   // ③ 掘る統合(token 逐次) or フォールバック
   emit("phase", { phase: "synth" satisfies SSEPhase });
   // 寄り添いモードでは、冒頭の引用段落をストリームにも流さない(完了時に消えるちらつきを防ぐ)
@@ -89,7 +102,7 @@ async function runAnalyzeStreamInner(
     if (out.length > 0) emit("token", { t: out });
   };
   // 境界の正直さ: 苦手系は回答冒頭に但し書きを先出しする(ストリームでも最初に見える)
-  const boundary = detectBoundary(req.input);
+  const boundary = boundaryAfterResearch(detectBoundary(req.input), research?.sources);
   if (boundary) emit("token", { t: `${boundaryPrefix(boundary)}\n\n` });
   // 視点の地図は統合脳と並列に作る(待ち時間を増やさない)。寄り添いモードでは作らない
   // 世界の選定が「迷いや判断を含まない相談」と判断した(空配列)ときも地図は作らない
@@ -105,14 +118,14 @@ async function runAnalyzeStreamInner(
     ? await synthesizeFallbackStream(
         req.input,
         req.summary,
-        { env: deps.env, collector, signal: deps.signal, careTurns: req.careTurns, prevAnswer: req.prevAnswer },
+        { env: deps.env, collector, signal: deps.signal, careTurns: req.careTurns, prevAnswer: req.prevAnswer, research: research?.sources },
         onToken,
       )
     : await synthesizeStream(
         req.input,
         req.summary,
         run.nodes,
-        { env: deps.env, collector, signal: deps.signal, careTurns: req.careTurns, prevAnswer: req.prevAnswer },
+        { env: deps.env, collector, signal: deps.signal, careTurns: req.careTurns, prevAnswer: req.prevAnswer, research: research?.sources },
         onToken,
       );
 
@@ -184,6 +197,7 @@ async function runAnalyzeStreamInner(
     quotaUsed,
     ...(quota ? { quota } : {}),
     boundary,
+    ...sourcesMeta(polished.text, research?.sources),
   };
   if (warnings.length > 0) meta.warnings = warnings;
   if (deps.economy) meta.economy = true;

@@ -1,6 +1,7 @@
 import { User } from "lucide-react";
 import InsightCard from "./InsightCard";
 import PerspectiveMapCard from "./PerspectiveMapCard";
+import SourcesList from "./SourcesList";
 import ProcessDock from "../cognition/ProcessDock";
 import NodePerspectives from "../../components/NodePerspectives";
 import NextThought from "../followups/NextThought";
@@ -65,6 +66,11 @@ export default function Conversation({
                   msg.sourceInput ? () => handlers.onRetry(msg) : undefined
                 }
               />
+            )}
+
+            {/* 調べて確かめた資料(法令・百科事典・ウェブ)の出典 */}
+            {!msg.streaming && msg.meta?.sources && msg.meta.sources.length > 0 && (
+              <SourcesList sources={msg.meta.sources} />
             )}
 
             {/* 視点の地図(合意の強さ・割れたところ・ひとつだけの指摘)。寄り添いモードでは出さない */}

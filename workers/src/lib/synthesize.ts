@@ -15,6 +15,7 @@ import {
   type Square,
 } from "../config/nodes.js";
 import { isUsableNode } from "./runNodes.js";
+import type { ResearchSource } from "./research.js";
 import type {
   CostSink,
   Env,
@@ -41,7 +42,7 @@ const SYNTH_PROCEDURE = `あなたはOctoBrainの中央脳。8本の腕 — 4つ
 2. 多くの腕が揃って言っていること(合意)を見つける(本文では「視点」と呼ぶ)
 3. 合意を鵜呑みにしない。「本当にそうか?」と自分で検証する。腕はみな同じ入力文だけを見ているので、入力の言い方に引きずられた共通の思い込みや、どの腕も触れていない見落としがあり得る。検証の結果を、支持・修正・異論のいずれかとして、あなた自身の判断と根拠で述べる
 4. 4つの軸(時/心/動/魂)それぞれで、対角の2報告が張り合っていないか見る
-5. 最も張り詰めた軸をひとつ特定する。その緊張は、本人が迫られている本当の選択を指している — それを本人の言葉で言語化する
+5. 最も張り詰めた軸をひとつ特定する。その緊張は、本人が迫られている本当の選択を指している — それを本人の言葉で言語化する。ただし入力に書かれていない感情・動機・葛藤(「焦っている」「目を背けている」など)を事実のように断定しない。推測は「〜かもしれません」と仮説として示す
 6. 一般論を書いたら削除する。この人の状況にしか当てはまらない文だけを残す
 7. weight<0.4のopinionは参考扱い、flagが立っている報告は除外する
 8. 構成: 導入 → 腕たちの見立てとそれに対するあなたの判断 → 織り上げた理解(本人が迫られている選択を含む) → 見方が分かれる点(残る場合のみ) → 次の一歩
@@ -88,6 +89,8 @@ export interface SynthOpts {
   // 直前の回答(参照用)。「3つ目の案を英語に」など前の回答の中身を指す依頼に応えるため、
   // 統合脳にだけ渡す(8本の腕には渡さない=入力の複製を増やさない)
   prevAnswer?: string;
+  // 公的・公開の情報源で確かめた資料(条文・百科事典・ウェブ)。腕の facts より優先させる
+  research?: ResearchSource[];
   collector?: CostSink;
   signal?: AbortSignal;
 }
@@ -192,7 +195,7 @@ export function buildSynthUserText(
   input: string,
   summary: string,
   reports: SynthReport[],
-  ctx: { careTurns?: number; prevAnswer?: string } = {},
+  ctx: { careTurns?: number; prevAnswer?: string; research?: ResearchSource[] } = {},
 ): string {
   const byAxis = new Map<string, SynthReport[]>();
   for (const r of reports) {
@@ -221,12 +224,26 @@ export function buildSynthUserText(
   if (lang) parts.push(lang);
   const care = careDirective(detectCare(input), ctx.careTurns ?? 0);
   if (care) parts.push(care);
+  const researchNote = researchBlock(ctx.research);
+  if (researchNote) parts.push(researchNote);
   const worldsNote = worldsDirective(reports);
   if (worldsNote) parts.push(worldsNote);
   parts.push(
     `[軸ごとの報告(対角の2腕が張り合う)]\n${JSON.stringify(dialogues)}`,
   );
   return parts.join("\n\n");
+}
+
+// 調べて確かめた資料を統合脳に渡す。腕の facts(モデルの記憶)と食い違えばこちらを優先させる。
+export function researchBlock(sources: ResearchSource[] | undefined): string | null {
+  if (!sources || sources.length === 0) return null;
+  const kind = { law: "法令・e-Gov", wiki: "百科事典", web: "ウェブ検索" } as const;
+  const lines = sources.map((s, i) => `[S${i + 1}] (${kind[s.kind]}) ${s.title}: ${s.text}`);
+  return `[調べて確かめた資料]
+${lines.join("\n")}
+- 視点の facts(記憶による情報)と食い違うときは、この資料を優先する。条文は現行のもの
+- 使うときは、本文で出典を短く添える(「労働基準法第20条では」「Wikipediaによると」のように)。番号 [S1] は書かない
+- 相談と関係のない資料は無視する。資料にないことを資料にあるように書かない`;
 }
 
 // 世界つきで探求したときだけ、統合の芯を「世界をまたぐ本質」に置くよう明示する。
@@ -245,7 +262,7 @@ export function worldsDirective(reports: SynthReport[]): string | null {
 function buildFallbackUserText(
   input: string,
   summary: string,
-  ctx: { careTurns?: number; prevAnswer?: string } = {},
+  ctx: { careTurns?: number; prevAnswer?: string; research?: ResearchSource[] } = {},
 ): string {
   const parts: string[] = [];
   if (summary.trim().length > 0) parts.push(`[会話要約]\n${summary.trim()}`);
@@ -257,6 +274,8 @@ function buildFallbackUserText(
   if (lang) parts.push(lang);
   const care = careDirective(detectCare(input), ctx.careTurns ?? 0);
   if (care) parts.push(care);
+  const researchNote = researchBlock(ctx.research);
+  if (researchNote) parts.push(researchNote);
   return parts.join("\n\n");
 }
 

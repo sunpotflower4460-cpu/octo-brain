@@ -49,6 +49,10 @@ export default function ConsentSheet({
             </strong>
             に送信します。
           </li>
+          <li>
+            法律・制度などを確かめるため、一般的な検索語(例:「育児休業」)だけを e-Gov 法令API・Wikipedia
+            などの公開の情報源に送ることがあります。入力した文章そのものは送りません。
+          </li>
           <li>会話の履歴はこの端末にだけ保存し、OctoBrain のサーバーには残しません。</li>
           <li>
             <strong className="text-[var(--text-primary)]">
