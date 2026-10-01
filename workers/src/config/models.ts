@@ -76,8 +76,9 @@ const LUNA = {
 } as const satisfies Omit<ModelConfig, "maxTokens">;
 
 // 比較評価用(開発環境の /api/dev/baseline だけで使う)。「普通のチャットボット」相当:
-// 同じ Luna を推論つき(既定の medium)で1回呼ぶ構成と、上位の GPT-6 Sol。評価者にも Sol を使う。
-export const BASELINE_MODELS: Record<"luna" | "sol", ModelConfig> = {
+// 同じ Luna を推論つき(既定の medium)で1回呼ぶ構成と、上位の GPT-6.1 Sol。
+// 審査役は Sol と、別の会社の DeepSeek V4 Pro(OpenAI 同士の自己びいきを避けるため両方で採点する)。
+export const BASELINE_MODELS: Record<"luna" | "sol" | "pro", ModelConfig> = {
   luna: {
     ...LUNA,
     extraBody: { reasoning_effort: "medium" },
@@ -87,7 +88,7 @@ export const BASELINE_MODELS: Record<"luna" | "sol", ModelConfig> = {
   sol: {
     provider: "openai-compat",
     baseURL: "https://api.openai.com/v1",
-    model: "gpt-6-sol",
+    model: "gpt-6.1-sol",
     keyEnv: "OPENAI_API_KEY",
     pricePerMTokIn: 2,
     pricePerMTokOut: 10,
@@ -96,6 +97,8 @@ export const BASELINE_MODELS: Record<"luna" | "sol", ModelConfig> = {
     maxTokens: 3000,
     reasoningBudget: 8000,
   },
+  // 評価の審査役(別の会社のモデル。OpenAI 同士の自己びいきを避ける)
+  pro: { ...PRO, maxTokens: 4000 },
 };
 
 // 役割ごとの max_tokens。docs/00_architecture.md §6 の設計に合わせる。
